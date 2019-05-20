@@ -1,0 +1,4 @@
+TARGETNAME=MemoryReviewer
+TARGETPATH=..\Bins
+TARGETTYPE=DRIVER
+SOURCES=driverforMR.c
