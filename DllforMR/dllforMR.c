@@ -73,13 +73,13 @@ BOOLEAN CancelMyPendingIRPs() {
 	// If the Function FAILS, It returns ZERO.
 	result = !CancelIoEx(hDevice, NULL);
 	if (!result) {
-		if (GetLastError() == ERROR_NOT_FOUND) {
-			// Couldn't find any IRPs for Cancelling.
-			//		-> Success.
+		if (GetLastError() == ERROR_SUCCESS) {
+			// IN MSDN : if any Pending IRPs are not found, The result is FALSE & GetLastError() returns ERROR_NOT_FOUND.
+			//			  But In Practice, The result is FALSE & GetLastError() returns ERROR_SUCCESS[0x0].
 			result = TRUE;
 		}
 	}
-
+	
 	return result;
 }
 
@@ -113,6 +113,7 @@ BOOLEAN ReceiveMessage(PMESSAGE_FORM pMessage) {
 		}
 	}
 
+	// For Debug...
 	//ZeroMemory(msg, 200);
 	//wsprintfW(msg, L"::: IN DLL : %ws[%d]", result ? L"TRUE" : L"FALSE", length);
 	//OutputDebugStringW(msg);
@@ -125,7 +126,6 @@ BOOLEAN SendControlMessage(UCHAR ctlCode, PMESSAGE_FORM pMessage) {
 	ULONG readLength = 0;
 	WCHAR msg[100];
 
-
 	result = DeviceIoControl(hDevice, CTL_CODE(SIN_DEV_TYPE, ctlCode, METHOD_OUT_DIRECT, FILE_READ_ACCESS | FILE_WRITE_ACCESS), pMessage, sizeof(MESSAGE_FORM), pMessage, sizeof(MESSAGE_FORM), &readLength, &controlOverlapped);
 	if (!result) {
 		if (GetLastError() == ERROR_IO_PENDING) {
@@ -134,8 +134,10 @@ BOOLEAN SendControlMessage(UCHAR ctlCode, PMESSAGE_FORM pMessage) {
 		}
 	}
 
+	// For Debug...
 	ZeroMemory(msg, 200);
 	wsprintfW(msg, L"::: IN DLL : %ws[%d]", result ? L"TRUE" : L"FALSE", readLength);
 	OutputDebugStringW(msg);
+
 	return result;
 }

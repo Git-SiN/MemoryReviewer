@@ -46,14 +46,25 @@ namespace UIforMR
         [DllImport(dllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool SendControlMessage(byte ctlCode, ref MESSAGE_FORM message);
 
-
         private Thread CommunicationThread;
         private Thread CancellingThread;
 
         private bool isDriverLoaded = false;
-        private volatile bool isCommunicationThreadStarted = false;
         private volatile bool isOwnTermination = false;
-        
+        private bool IsCommunicationThreadStarted = false;
+        public bool isCommunicationThreadStarted
+        {
+            get { return IsCommunicationThreadStarted; }
+            set
+            {
+                IsCommunicationThreadStarted = value;
+                if (IsCommunicationThreadStarted)
+                    bConnect.Text = "Disconnect";
+                else
+                    bConnect.Text = "Connect";
+            }
+        } 
+
         //////////////////////////////////////////////////////////////////////////
         //////////////////			Message.Type                //////////////////
         //////////////////////////////////////////////////////////////////////////
@@ -176,7 +187,6 @@ namespace UIforMR
             {
                 if (CommunicationThread != null && CommunicationThread.ThreadState == ThreadState.Running && isCommunicationThreadStarted)
                 {
-                    driverToolStripMenuItem_DropDownOpening(this, null);
                     bConnect_Click(this, null);
                     CommunicationThread.Join();
                 }
@@ -202,28 +212,20 @@ namespace UIforMR
             if(bConnect.Text == "Connect")
             {
                 if (CommunicationThread != null && CommunicationThread.ThreadState == ThreadState.Running)
-                {
-                    // 요거는 완성 후에 상황보고 켜든지 하자....
-                    isCommunicationThreadStarted = true;
                     MessageBox.Show("The Communication Thread is already running.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
                 else
                 {
                     CommunicationThread = new Thread(CommunicationRoutine);
                     CommunicationThread.Start();
 
-                    if (CommunicationThread != null && CommunicationThread.ThreadState == ThreadState.Running)
-                        bConnect.Text = "Disconnect";
-                    else
+                    if (!(CommunicationThread != null && CommunicationThread.ThreadState == ThreadState.Running))
                         MessageBox.Show("Failed to Connect with my Driver.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             else
             {
                 if (CancellingThread != null && CancellingThread.ThreadState == ThreadState.Running)
-                {
                     MessageBox.Show("The Cancelling Thread is alreay running.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
                 else
                 {
                     isOwnTermination = true;
@@ -234,8 +236,6 @@ namespace UIforMR
 
                     if (isCommunicationThreadStarted)
                         MessageBox.Show("Failed to Disconnect with my Driver.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    else
-                        bConnect.Text = "Connect";
                 }
             }
         }
@@ -250,11 +250,6 @@ namespace UIforMR
             {
                 bConnect.Enabled = false;
             }
-
-            if (isCommunicationThreadStarted)
-                bConnect.Text = "Disconnect";
-            else
-                bConnect.Text = "Connect";
         }
     }
 }

@@ -9,10 +9,11 @@
 typedef struct _DEVICE_EXTENSION {
 	LIST_ENTRY MessageListHead;
 	KSPIN_LOCK MessageLock;
-	PIRP PendingIRP;
-	KSPIN_LOCK PendingIRPLock;
 	PETHREAD pCommunicationThread;
 	KSEMAPHORE CommunicationThreadSemaphore;
+	PIRP PendingIRP;
+	KSPIN_LOCK PendingIRPLock; 
+	KEVENT PendingIRPEvent;
 	BOOLEAN bTerminate;
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
@@ -38,6 +39,7 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 	// Terminate the Kernel Communication Thread.
 	pExtension->bTerminate = TRUE;
 	KeReleaseSemaphore(&(pExtension->CommunicationThreadSemaphore), 0, 1, FALSE);	
+	KeSetEvent(&(pExtension->PendingIRPEvent), 0, FALSE);
 	KeWaitForSingleObject(pExtension->pCommunicationThread, Executive, KernelMode, FALSE, NULL);
 	DbgPrintEx(101, 0, "%sTerminate my Communication Thread...\n", dbgPrefix);
 
@@ -53,10 +55,6 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 	}
 	KeReleaseSpinLock(&(pExtension->MessageLock), kIrql);
 	DbgPrintEx(101, 0, "%sClear the Message List...\n", dbgPrefix);
-
-	// Cancel the Pending IRP		-> Do it in the User Applicaiton.
-	//if (pExtension->PendingIRP)
-	//	IoCancelIrp(pExtension->PendingIRP);
 
 	// Delete the DEVICE_OBJECT.
 	RtlInitUnicodeString(&linkName, linkBuffer);
@@ -138,6 +136,7 @@ BOOLEAN MessageMaker(ULONG messageType, PVOID pMessage, ULONG messageLength) {
 	
 }
 
+// It's only for test....
 VOID TestForMessageQueuing(ULONG count) {
 	WCHAR message[] = L"It's for test.";
 
@@ -177,12 +176,12 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 			RtlZeroMemory(pBuffer, sizeof(MESSAGE_FORM));
 
 			if (!isStartedUserCommunicationThread) {
-				// It's for Connection Test...
+				// For Synchronization with the User Communication Thread...
 				*(PULONG)pBuffer = INITIALIZE_COMMUNICATION;
 				RtlCopyMemory(pBuffer + 4, L"HI, I Received your First message...", 72);
 				isStartedUserCommunicationThread = TRUE;
 
-				// Test the Routines for Communication.
+				// For Test...
 				TestForMessageQueuing(10);
 
 				pIrp->IoStatus.Information = sizeof(MESSAGE_FORM);
@@ -230,7 +229,7 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 						else {
 							// Pending...
 							DbgPrintEx(101, 0, "%sA Pending IRP is occurred...\n", dbgPrefix);
-							KeReleaseSemaphore(&(pExtension->CommunicationThreadSemaphore), 0, 1, FALSE);
+							KeSetEvent(&(pExtension->PendingIRPEvent), 0, FALSE);
 						}
 					}
 					KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
@@ -277,7 +276,6 @@ NTSTATUS DispatchControl(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 
 	//pIrp->IoStatus.Status = ntStatus;	-> This 'pIrp->IoStatus' Field is not associated with the IRP_MJ_DEVICE_CONTROL.
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
-
 	return ntStatus;
 }
 
@@ -287,18 +285,11 @@ VOID CommunicationThread(PVOID context) {
 	KIRQL kIrql;
 	PIRP pIrp;
 	PMESSAGE_ENTRY pMessageEntry;
-	KTIMER timerForWaitingIRP;
-	LARGE_INTEGER waitingTime;
-	UCHAR countForWaitingIRP;
 	UCHAR dbgPrefix[] = "::: IN Communication Thread : ";
 	PMDL pMdl;
 
-	waitingTime.QuadPart = -10000000;		// 1 SEC 
-	KeInitializeTimer(&timerForWaitingIRP);
-
 	while (TRUE) {
 		pMessageEntry = pIrp = pMdl = NULL;
-		countForWaitingIRP = 15;
 
 		KeWaitForSingleObject(&(pExtension->CommunicationThreadSemaphore), Executive, KernelMode, FALSE, NULL);
 		if (pExtension->bTerminate) {
@@ -312,8 +303,22 @@ VOID CommunicationThread(PVOID context) {
 			KeReleaseSpinLock(&(pExtension->MessageLock), kIrql);
 			if (pMessageEntry != &(pExtension->MessageListHead)) {
 				if (pMessageEntry && (pMessageEntry->pMessageForm)) {
+					while (TRUE) {
+						KeWaitForSingleObject(&(pExtension->PendingIRPEvent), Executive, KernelMode, FALSE, NULL);
+						if (pExtension->bTerminate) {
+							// Restore the Dequeued Message...
+							__try {
+								ExInterlockedInsertHeadList(&(pExtension->MessageListHead), (PLIST_ENTRY)pMessageEntry, &(pExtension->MessageLock));
+							}
+							__except (EXCEPTION_EXECUTE_HANDLER) {
+								DbgPrintEx(101, 0, "%sFailed to restore the dequeued message...\n", dbgPrefix);
+							}
 
-					while (countForWaitingIRP--) {
+							DbgPrintEx(101, 0, "%sTerminated...\n", dbgPrefix);
+							PsTerminateSystemThread(STATUS_SUCCESS);
+							return;
+						}
+
 						KeAcquireSpinLock(&(pExtension->PendingIRPLock), &kIrql);
 						pIrp = pExtension->PendingIRP;
 						pExtension->PendingIRP = NULL;
@@ -335,34 +340,16 @@ VOID CommunicationThread(PVOID context) {
 								break;
 							}
 							else {
+								// In this Case, Jut Continue this Loop...
 								DbgPrintEx(101, 0, "%sThe MDL of the Pending IRP is corrupted...\n");
 								pIrp->IoStatus.Status = STATUS_UNSUCCESSFUL;
 								pIrp->IoStatus.Information = 0;
 
 								IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 								pIrp = NULL;
-							
-								// In this case, Continue the loop for waiting...
 							}
 						}
-
-						// If the Pending IRP is not exist, Wait for the new one up to 15 sec.
-						if (countForWaitingIRP) {
-							DbgPrintEx(101, 0, "%sWait for Pending IRP : %03d", dbgPrefix, countForWaitingIRP);
-							KeSetTimer(&timerForWaitingIRP, waitingTime, NULL);
-							KeWaitForSingleObject(&timerForWaitingIRP, Executive, KernelMode, FALSE, NULL);
-						}
-						else {
-							DbgPrintEx(101, 0, "%sTIMEOVER", dbgPrefix);
-
-							__try {
-								ExInterlockedInsertHeadList(&(pExtension->MessageListHead), (PLIST_ENTRY)pMessageEntry, &(pExtension->MessageLock));
-							}
-							__except (EXCEPTION_EXECUTE_HANDLER) {
-								DbgPrintEx(101, 0, "%sFailed to restore the dequeued message...\n", dbgPrefix);
-							}
-						}	
-					}
+					} // Waiting IRP Loop
 					continue;
 				}
 				else {
@@ -370,15 +357,15 @@ VOID CommunicationThread(PVOID context) {
 						if (pMessageEntry->pMessageForm)
 							ExFreePool(pMessageEntry->pMessageForm);
 						ExFreePool(pMessageEntry);
+						DbgPrintEx(101, 0, "%sThe Buffer of the dequeued Message is corrupted...\n", dbgPrefix);
 					}
 				}
 			}
-			DbgPrintEx(101, 0, "%sThe Buffer of the dequeued Message is corrupted...\n", dbgPrefix);
 		}
-		else {
+		else
 			KeReleaseSpinLock(&(pExtension->MessageLock), kIrql);
-			DbgPrintEx(101, 0, "%sThe Message Queue is Empty...\n", dbgPrefix);
-		}
+		
+		DbgPrintEx(101, 0, "%sThe Message Queue is Empty...\n", dbgPrefix);
 	}	// while
 }
 
@@ -393,12 +380,13 @@ NTSTATUS ConnectWithApplication(PDEVICE_EXTENSION pExtension) {
 	ntStatus = PsCreateSystemThread(&hThread, GENERIC_ALL, &objAttr, NULL, NULL, CommunicationThread, (PVOID)pExtension);
 	if (NT_SUCCESS(ntStatus)) {
 		KeInitializeSemaphore(&(pExtension->CommunicationThreadSemaphore), 0, 500);
+		KeInitializeEvent(&(pExtension->PendingIRPEvent), SynchronizationEvent, FALSE);
+
 		ntStatus = ObReferenceObjectByHandle(hThread, THREAD_ALL_ACCESS, NULL, KernelMode, &(pExtension->pCommunicationThread), NULL);
 		ZwClose(hThread); 
 
 		if (NT_SUCCESS(ntStatus)) {
 			// Make ready for the Queues...
-			//		-> InitializeListHead(&(pExtension->PendingIRPListHead));	// Exchanged -> The PENDING IRP is only one. Not a LIST.
 			InitializeListHead(&(pExtension->MessageListHead));
 			KeInitializeSpinLock(&(pExtension->MessageLock));
 			KeInitializeSpinLock(&(pExtension->PendingIRPLock));
@@ -409,7 +397,7 @@ NTSTATUS ConnectWithApplication(PDEVICE_EXTENSION pExtension) {
 			// Terminate the Communication Thread.
 			pExtension->bTerminate = TRUE;
 			KeReleaseSemaphore(&(pExtension->CommunicationThreadSemaphore), 0, 1, FALSE);
-		
+			KeSetEvent(&(pExtension->PendingIRPEvent), 0, FALSE);
 			DbgPrintEx(101, 0, "%sFailed to Create the Kernel Communication Thread...\n", dbgPrefix);
 		}
 	}
