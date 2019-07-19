@@ -1,4 +1,9 @@
-﻿using System;
+﻿//  EPROCESS 구조체 표현할 방법 좀 생각해보자..... 
+//      -> 그냥 필드 구조체 하나 만들고 그거 배열로...
+//          -> 클래스로 하자..
+//  프로그램 몇 번 실행 & 종료 반복하면 블루스크린 뜬다... 체크 한번 해봐야 할 듯....
+
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -33,6 +38,18 @@ namespace UIforMR
         public string uMessage;
     }
 
+    //[StructLayout(LayoutKind.Sequential, Pack = 1)]
+    //public struct EPROCESS
+    //{
+    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 100)]
+    //    public byte[] First;
+    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 200)]
+    //    public byte[] Second;
+    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 300)]
+    //    public byte[] Third;
+    //}
+
+
     public partial class MainForm : Form
     {
         internal const string dllName = "DllforMR.dll";
@@ -48,22 +65,28 @@ namespace UIforMR
         [DllImport(dllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool SendControlMessage(byte ctlCode, ref MESSAGE_FORM message);
 
+        private KernelObjects kernelObjects = null;
+
         private Thread CommunicationThread;
         private Thread CancellingThread;
 
         private bool isDriverLoaded = false;
         private volatile bool isOwnTermination = false;
         private bool IsCommunicationThreadStarted = false;
-        public bool isCommunicationThreadStarted
+        public bool isCommunicationThreadStarted 
         {
             get { return IsCommunicationThreadStarted; }
             set
             {
-                IsCommunicationThreadStarted = value;
-                if (IsCommunicationThreadStarted)
-                    bConnect.Text = "Disconnect";
-                else
-                    bConnect.Text = "Connect";
+                try
+                {
+                    IsCommunicationThreadStarted = value;
+                    if (IsCommunicationThreadStarted)
+                        bConnect.Text = "Disconnect";
+                    else
+                        bConnect.Text = "Connect";
+                }
+                catch (System.InvalidOperationException) { }    // Only need for debugging
             }
         }
 
@@ -81,24 +104,53 @@ namespace UIforMR
 
         private void MainForm_Load(object sender, EventArgs e)
         {
+
+            //DebuggingForm test = new DebuggingForm();
+            //test.ShowDialog();
+
+            //this.Dispose();
+            //this.Close();
+
+            //return;
+
             if (InitDevice())
             {
                 isDriverLoaded = true;
                 InitializeAppearance();
+
                 GetProcess();
+
+                ///////////////////
+                //string test = "";
+                                
+                //Type t = typeof(EPROCESS);
+                //_FieldInfo[] fields = t.GetFields();
+                //foreach (_FieldInfo field in fields)
+                //{
+                    
+                //    test += String.Format("{0}[{1}] ", field.Name, field.Attributes);  // HasFiledMarshal
+                //}
+
+                
+                //MessageBox.Show(test);
+
+                /////////////////////////
 
                 CommunicationThread = new Thread(CommunicationRoutine);
                 CommunicationThread.Start();
 
                 if (CommunicationThread != null && CommunicationThread.ThreadState == ThreadState.Running)
+                {
+                    kernelObjects = new KernelObjects(this);
                     return;
+                }
                 else
                 {
                     MessageBox.Show("Failed to Create the User Communication Thread.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     DisConnect();
                 }
             }
-
+            
             Dispose();
             Close();
         }
