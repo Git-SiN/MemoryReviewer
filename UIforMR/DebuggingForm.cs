@@ -14,7 +14,8 @@ namespace UIforMR
     {
         private Size buttonSize = new Size(80,25);
         private Size distance = new Size(4, 2);
-
+        private int maxLengthOfLines = 0;
+        
         public DebuggingForm()
         {
             InitializeComponent();
@@ -29,26 +30,36 @@ namespace UIforMR
             this.Text = caption;
             this.textBox.Lines = messages;
 
+            foreach (string message in messages)
+            {
+                if (maxLengthOfLines < message.Length)
+                    maxLengthOfLines = message.Length;
+            }
+
+            maxLengthOfLines = (int)(this.textBox.Font.Size * maxLengthOfLines * 0.84);
             FormType(comment, buttonType);
         }
 
         private void FormType(string comment, MessageBoxButtons type)
         {
             bYes.Size = bNo.Size = buttonSize;
-
             this.splitContainer1.Panel2MinSize = distance.Height * 2 + buttonSize.Height;
-            if(comment != null)
+
+            if (comment != null)
             {
                 this.lComment.Visible = true;
                 this.lComment.Text = comment;
-                
-                int minWidth = this.lComment.Width + distance.Width * 2;
-                if (this.Width < minWidth)
-                    this.Width = (minWidth < Screen.PrimaryScreen.Bounds.Width) ? minWidth : (Screen.PrimaryScreen.Bounds.Width - this.Padding.Left - this.Padding.Right);
+
+                if (maxLengthOfLines < this.lComment.Width)
+                    maxLengthOfLines = this.lComment.Width;
 
                 this.lComment.Location = new Point(distance.Width, distance.Height);
                 this.splitContainer1.Panel2MinSize += (this.lComment.Height + distance.Height);
             }
+            maxLengthOfLines += (distance.Width * 2);
+            if (this.Width < maxLengthOfLines)
+                this.Width = (maxLengthOfLines < Screen.PrimaryScreen.Bounds.Width) ? maxLengthOfLines : (Screen.PrimaryScreen.Bounds.Width - this.Padding.Left - this.Padding.Right);
+
             this.splitContainer1.SplitterDistance = this.splitContainer1.Height - (this.splitContainer1.Panel2MinSize + this.splitContainer1.SplitterWidth);
 
 
@@ -74,7 +85,8 @@ namespace UIforMR
 
         private void DebuggingForm_Load(object sender, EventArgs e)
         {
-            
+            if (KernelObjects.debuggingFormLocation != Point.Empty)
+                this.Location = KernelObjects.debuggingFormLocation;
         }
 
         private void Button_Click(object sender, EventArgs e)
@@ -95,6 +107,7 @@ namespace UIforMR
                     break;
             }
 
+            KernelObjects.debuggingFormLocation = this.Location;
             return;
         }
     }

@@ -401,7 +401,7 @@ NTSTATUS ConnectWithApplication(PDEVICE_EXTENSION pExtension) {
 			DbgPrintEx(101, 0, "%sFailed to Create the Kernel Communication Thread...\n", dbgPrefix);
 		}
 	}
-
+	
 	return ntStatus;
 }
 

@@ -1,9 +1,4 @@
-﻿//  EPROCESS 구조체 표현할 방법 좀 생각해보자..... 
-//      -> 그냥 필드 구조체 하나 만들고 그거 배열로...
-//          -> 클래스로 하자..
-//  프로그램 몇 번 실행 & 종료 반복하면 블루스크린 뜬다... 체크 한번 해봐야 할 듯....
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -37,18 +32,6 @@ namespace UIforMR
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 510)]
         public string uMessage;
     }
-
-    //[StructLayout(LayoutKind.Sequential, Pack = 1)]
-    //public struct EPROCESS
-    //{
-    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 100)]
-    //    public byte[] First;
-    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 200)]
-    //    public byte[] Second;
-    //    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 300)]
-    //    public byte[] Third;
-    //}
-
 
     public partial class MainForm : Form
     {
@@ -91,6 +74,7 @@ namespace UIforMR
         }
 
         private sbyte alignedProcessList = 0;
+
         //////////////////////////////////////////////////////////////////////////
         //////////////////			Message.Type                //////////////////
         //////////////////////////////////////////////////////////////////////////
@@ -104,15 +88,6 @@ namespace UIforMR
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-
-            //DebuggingForm test = new DebuggingForm();
-            //test.ShowDialog();
-
-            //this.Dispose();
-            //this.Close();
-
-            //return;
-
             if (InitDevice())
             {
                 isDriverLoaded = true;
@@ -120,21 +95,9 @@ namespace UIforMR
 
                 GetProcess();
 
-                ///////////////////
-                //string test = "";
-                                
-                //Type t = typeof(EPROCESS);
-                //_FieldInfo[] fields = t.GetFields();
-                //foreach (_FieldInfo field in fields)
-                //{
-                    
-                //    test += String.Format("{0}[{1}] ", field.Name, field.Attributes);  // HasFiledMarshal
-                //}
-
-                
-                //MessageBox.Show(test);
-
-                /////////////////////////
+                // For Test...
+                //kernelObjects = new KernelObjects(this);
+                //return;
 
                 CommunicationThread = new Thread(CommunicationRoutine);
                 CommunicationThread.Start();
