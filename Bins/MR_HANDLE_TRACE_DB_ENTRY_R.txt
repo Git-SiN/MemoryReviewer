@@ -1,0 +1,7 @@
+ntdll!_HANDLE_TRACE_DB_ENTRY
+   +0x000 ClientId         : _CLIENT_ID
+      +0x000 UniqueProcess    : Ptr32 Void
+      +0x004 UniqueThread     : Ptr32 Void
+   +0x008 Handle           : Ptr32 Void
+   +0x00c Type             : Uint4B
+   +0x010 StackTrace       : [16] Ptr32 Void
