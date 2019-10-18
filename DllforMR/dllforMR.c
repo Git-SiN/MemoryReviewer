@@ -15,6 +15,7 @@ TCHAR DRIVER_FULL_NAME[MAX_PATH] = { 0, };
 HANDLE hDevice = INVALID_HANDLE_VALUE;
 OVERLAPPED readOverlapped;
 OVERLAPPED controlOverlapped;
+OVERLAPPED writeOverlapped;
 
 
 BOOLEAN MakeFullName() {
@@ -46,13 +47,16 @@ BOOLEAN ConnectToKernel() {
 			if (readOverlapped.hEvent != NULL) {
 				ZeroMemory(&controlOverlapped, sizeof(OVERLAPPED));
 				controlOverlapped.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-				if (controlOverlapped.hEvent != NULL)
-					return TRUE;
-				else
-				{
-					CloseHandle(readOverlapped.hEvent);
-					readOverlapped.hEvent = NULL;
+				if (controlOverlapped.hEvent != NULL) {
+					ZeroMemory(&writeOverlapped, sizeof(OVERLAPPED));
+					writeOverlapped.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+					if(writeOverlapped.hEvent != NULL)
+						return TRUE;
+					else
+						CloseHandle(controlOverlapped.hEvent);
 				}
+		
+				CloseHandle(readOverlapped.hEvent);
 			}
 
 			OutputDebugStringW(L"Failed the CreateEvent() in the OVERLAPPED Structure...\n");
@@ -97,6 +101,22 @@ BOOLEAN DisConnect() {
 		(ManageDriver(DRIVER_FULL_NAME, MANAGE_DRIVER_REMOVE)));
 }
 
+VOID WriteMessage(PBOOLEAN pResult, PMESSAGE_FORM pMessage) {
+	BOOLEAN result = FALSE;
+	ULONG writeLength = 0;
+
+	if (pMessage) {
+		result = WriteFile(hDevice, pMessage, sizeof(MESSAGE_FORM), &writeLength, &writeOverlapped);
+		if (!result) {
+			if (GetLastError() == ERROR_IO_PENDING) {
+				WaitForSingleObject(writeOverlapped.hEvent, INFINITE);
+				result = GetOverlappedResult(hDevice, &writeOverlapped, &writeLength, FALSE);
+			}
+		}
+	}
+
+	*pResult = result;		
+}
 
 BOOLEAN ReceiveMessage(PMESSAGE_FORM pMessage) {
 	BOOLEAN result = FALSE;
@@ -121,10 +141,15 @@ BOOLEAN ReceiveMessage(PMESSAGE_FORM pMessage) {
 	return result;
 }
 
-BOOLEAN SendControlMessage(UCHAR ctlCode, PMESSAGE_FORM pMessage) {
+BOOLEAN SendControlMessage(USHORT ctlCode, PMESSAGE_FORM pMessage) {
 	BOOLEAN result = FALSE;
 	ULONG readLength = 0;
 	WCHAR msg[100];
+	
+	// For Debug...
+	ZeroMemory(msg, 200);
+	wsprintfW(msg, L"::: IN DLL LENGTH : [%d]", sizeof(*pMessage));
+	OutputDebugStringW(msg);
 
 	result = DeviceIoControl(hDevice, CTL_CODE(SIN_DEV_TYPE, ctlCode, METHOD_OUT_DIRECT, FILE_READ_ACCESS | FILE_WRITE_ACCESS), pMessage, sizeof(MESSAGE_FORM), pMessage, sizeof(MESSAGE_FORM), &readLength, &controlOverlapped);
 	if (!result) {

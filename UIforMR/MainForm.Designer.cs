@@ -52,6 +52,7 @@
             this.tThreads = new System.Windows.Forms.TabPage();
             this.tabPage2 = new System.Windows.Forms.TabPage();
             this.tabPage3 = new System.Windows.Forms.TabPage();
+            this.tvEprocess = new System.Windows.Forms.TreeView();
             this.menuStrip1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
@@ -247,6 +248,7 @@
             // 
             // tabPage1
             // 
+            this.tabPage1.Controls.Add(this.tvEprocess);
             this.tabPage1.Controls.Add(this.lProcessInfo);
             this.tabPage1.Location = new System.Drawing.Point(4, 31);
             this.tabPage1.Name = "tabPage1";
@@ -297,6 +299,16 @@
             this.tabPage3.TabIndex = 3;
             this.tabPage3.Text = "tabPage3";
             this.tabPage3.UseVisualStyleBackColor = true;
+            // 
+            // tvEprocess
+            // 
+            this.tvEprocess.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tvEprocess.FullRowSelect = true;
+            this.tvEprocess.HideSelection = false;
+            this.tvEprocess.Location = new System.Drawing.Point(3, 3);
+            this.tvEprocess.Name = "tvEprocess";
+            this.tvEprocess.Size = new System.Drawing.Size(1184, 485);
+            this.tvEprocess.TabIndex = 1;
             // 
             // MainForm
             // 
@@ -351,6 +363,7 @@
         private System.Windows.Forms.ColumnHeader columnHeader4;
         private System.Windows.Forms.ColumnHeader columnHeader5;
         private System.Windows.Forms.TextBox tSelectedProcess;
+        private System.Windows.Forms.TreeView tvEprocess;
     }
 }
 

@@ -535,7 +535,6 @@ namespace UIforMR
                     throw (new Exception("NULL_LIST"));
             }
 
-
             internal bool AddField(KOBJECT_FIELD field)
             {
                 if (Fields != null)
@@ -1180,16 +1179,29 @@ namespace UIforMR
                 else
                     return false;
             }
-        }
+            
+            internal int GetFieldOffset(string FieldName)
+            {
+                if ((FieldName.Length > 0) && (this.Fields.Count > 0))
+                {
+                    foreach (KOBJECT_FIELD field in this.Fields)
+                    {
+                        if (field.Name == FieldName.Trim())
+                            return (int)(field.Offset);
+                    }
+                }
 
+                return -1;
+            }
+        }
 
 
         //////////////////////////////////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////
         internal volatile static List<KERNEL_OBJECT> Registered = null;
-        private MainForm form = null;
-        private Thread ParsingThread = null;
+        internal MainForm form = null;
+        //private Thread ParsingThread = null;
         internal static System.Drawing.Point debuggingFormLocation = System.Drawing.Point.Empty;    // Store the Last Location of Debugging Form.
 
         public KernelObjects(MainForm f)
@@ -1199,8 +1211,10 @@ namespace UIforMR
             Registered = new List<KERNEL_OBJECT>();
             Registered.Clear();
 
-            ParsingThread = new Thread(InitializeList);
-            ParsingThread.Start();
+            InitializeList();
+           
+            //ParsingThread = new Thread(InitializeList);
+            //ParsingThread.Start();
         }
 
         /// <summary>
@@ -1655,7 +1669,19 @@ namespace UIforMR
         
             return currentLine;
         }
-        
+
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////
+        /////////////////////////////           INTERFACE           /////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////// 
+        internal uint GetObjectSize(string ObjectName)
+        {
+            if ((ObjectName != null) && (IndexOfThisObject(Registered, ObjectName) != -1))
+                return Registered[IndexOfThisObject(Registered, ObjectName)].Size;
+            else
+                return 0;
+        }
 
         //////////////////////////////////////////////////////////////////
     }

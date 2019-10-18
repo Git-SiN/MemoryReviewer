@@ -19,8 +19,9 @@ extern "C" {
 	SINFUNC		BOOLEAN ConnectToKernel();
 	SINFUNC		BOOLEAN DisConnect();
 	SINFUNC		BOOLEAN ReceiveMessage(PMESSAGE_FORM);
+	SINFUNC		VOID WriteMessage(PBOOLEAN, PMESSAGE_FORM);
 	SINFUNC		BOOLEAN CancelMyPendingIRPs();
-	SINFUNC		BOOLEAN SendControlMessage(UCHAR, PMESSAGE_FORM);
+	SINFUNC		BOOLEAN SendControlMessage(USHORT, PMESSAGE_FORM);
 #ifdef __CPLUSPLUS
 }
 #endif
