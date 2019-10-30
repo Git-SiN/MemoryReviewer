@@ -94,6 +94,9 @@ BOOLEAN DisConnect() {
 		CloseHandle(readOverlapped.hEvent);
 	if (controlOverlapped.hEvent != NULL)
 		CloseHandle(controlOverlapped.hEvent);
+	if (writeOverlapped.hEvent != NULL)
+		CloseHandle(writeOverlapped.hEvent);
+
 	if(hDevice != INVALID_HANDLE_VALUE)
 		CloseHandle(hDevice);
 
@@ -144,14 +147,14 @@ BOOLEAN ReceiveMessage(PMESSAGE_FORM pMessage) {
 BOOLEAN SendControlMessage(USHORT ctlCode, PMESSAGE_FORM pMessage) {
 	BOOLEAN result = FALSE;
 	ULONG readLength = 0;
-	WCHAR msg[100];
+	//WCHAR msg[100];
 	
 	// For Debug...
-	ZeroMemory(msg, 200);
-	wsprintfW(msg, L"::: IN DLL LENGTH : [%d]", sizeof(*pMessage));
-	OutputDebugStringW(msg);
-
-	result = DeviceIoControl(hDevice, CTL_CODE(SIN_DEV_TYPE, ctlCode, METHOD_OUT_DIRECT, FILE_READ_ACCESS | FILE_WRITE_ACCESS), pMessage, sizeof(MESSAGE_FORM), pMessage, sizeof(MESSAGE_FORM), &readLength, &controlOverlapped);
+	//ZeroMemory(msg, 200);
+	//wsprintfW(msg, L"::: IN DLL LENGTH : [%d]", sizeof(*pMessage));
+	//OutputDebugStringW(msg);
+	//
+	result = DeviceIoControl(hDevice, CTL_CODE(SIN_DEV_TYPE, ctlCode, METHOD_OUT_DIRECT, FILE_ALL_ACCESS), pMessage, sizeof(MESSAGE_FORM), pMessage, sizeof(MESSAGE_FORM), &readLength, &controlOverlapped);
 	if (!result) {
 		if (GetLastError() == ERROR_IO_PENDING) {
 			WaitForSingleObject(controlOverlapped.hEvent, INFINITE);
@@ -160,9 +163,9 @@ BOOLEAN SendControlMessage(USHORT ctlCode, PMESSAGE_FORM pMessage) {
 	}
 
 	// For Debug...
-	ZeroMemory(msg, 200);
-	wsprintfW(msg, L"::: IN DLL : %ws[%d]", result ? L"TRUE" : L"FALSE", readLength);
-	OutputDebugStringW(msg);
+	//ZeroMemory(msg, 200);
+	//wsprintfW(msg, L"::: IN DLL : %ws[%d]", result ? L"TRUE" : L"FALSE", readLength);
+	//OutputDebugStringW(msg);
 
 	return result;
 }

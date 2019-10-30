@@ -1,29 +1,22 @@
 1>warnings in directory c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(97) : warning C4133: 'function' : incompatible types - from 'char [10]' to 'PWCHAR'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(97) : warning C4133: 'function' : incompatible types - from 'char [16]' to 'PWCHAR'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(171) : warning C4996: 'ExAllocatePool': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(188) : warning C4242: 'initializing' : conversion from 'size_t' to 'UCHAR', possible loss of data
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(202) : warning C4996: 'ExAllocatePool': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(236) : warning C4996: 'ExAllocatePool': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(239) : warning C4996: 'ExAllocatePool': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(277) : warning C4242: 'function' : conversion from 'ULONG' to 'USHORT', possible loss of data
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(317) : warning C4996: 'ExAllocatePool': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(360) : warning C4133: '=' : incompatible types - from 'PMDL' to 'PIRP'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(360) : warning C4133: '=' : incompatible types - from 'PIRP' to 'PMESSAGE_ENTRY'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(372) : warning C4133: '!=' : incompatible types - from 'LIST_ENTRY *' to 'PMESSAGE_ENTRY'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(399) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(399) : warning C4996: 'MmMapLockedPages': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(167) : warning C4996: 'ExAllocatePool': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(184) : warning C4242: 'initializing' : conversion from 'size_t' to 'UCHAR', possible loss of data
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(198) : warning C4996: 'ExAllocatePool': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(232) : warning C4996: 'ExAllocatePool': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(235) : warning C4996: 'ExAllocatePool': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(356) : warning C4133: '=' : incompatible types - from 'PMDL' to 'PIRP'
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(356) : warning C4133: '=' : incompatible types - from 'PIRP' to 'PMESSAGE_ENTRY'
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(368) : warning C4133: '!=' : incompatible types - from 'LIST_ENTRY *' to 'PMESSAGE_ENTRY'
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(396) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(396) : warning C4996: 'MmMapLockedPages': was declared deprecated
 1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(400) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
 1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(400) : warning C4996: 'MmMapLockedPages': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(562) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(562) : warning C4996: 'MmMapLockedPages': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(571) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(571) : warning C4996: 'MmMapLockedPages': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(572) : warning C4133: 'function' : incompatible types - from 'UCHAR [1024]' to 'const wchar_t *'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(620) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(620) : warning C4996: 'MmMapLockedPages': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(704) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(704) : warning C4996: 'MmMapLockedPages': was declared deprecated
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(709) : warning C4133: 'function' : incompatible types - from 'REQUIRED_OFFSET *' to 'PUCHAR'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(753) : warning C4133: '!=' : incompatible types - from 'LIST_ENTRY *' to 'PMESSAGE_ENTRY'
-1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(270) : warning C4715: 'MessageMaker' : not all control paths return a value
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(554) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(554) : warning C4996: 'MmMapLockedPages': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(565) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(565) : warning C4996: 'MmMapLockedPages': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(570) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(570) : warning C4996: 'MmMapLockedPages': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(609) : warning C4995: 'MmGetSystemAddressForMdl': name was marked as #pragma deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(609) : warning C4996: 'MmMapLockedPages': was declared deprecated
+1>c:\users\rootkit\source\repos\memoryreviewer\memoryreviewer\driverformr\driverformr.c(738) : warning C4133: '!=' : incompatible types - from 'LIST_ENTRY *' to 'PMESSAGE_ENTRY'

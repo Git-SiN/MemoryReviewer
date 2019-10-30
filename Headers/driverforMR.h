@@ -30,43 +30,12 @@ typedef struct _VAD_ROOT_INFO {
 	ULONG pEprocess;
 	MM_AVL_TABLE avlTable;
 } VAD_ROOT_INFO, *PVAD_ROOT_INFO;
-//
-//typedef struct _REQUIRED_OFFSET {
-//		WCHAR ObjectName[253];
-//	struct {
-//		ULONG pad2;
-//		WCHAR FieldName[253];
-//	};
-//	ULONG Offset;
-//} REQUIRED_OFFSET, *PREQUIRED_OFFSET;
-//
-//
-//typedef struct _MESSAGE_FORM{
-//	USHORT Type;
-//	USHORT Res;	
-//	ULONG Address;
-//	ULONG Size;
-//	union {
-//		UCHAR bMessage[1024];
-//		struct {
-//			ULONG padd;
-//			WCHAR uMessage[510];
-//		};
-//		struct {
-//			ULONG pad1;
-//			REQUIRED_OFFSET Required;
-//		};
-//	};
-//} MESSAGE_FORM, *PMESSAGE_FORM;
-
-
 
 typedef struct _REQUIRED_OFFSET {
+	ULONG Offset;
 	WCHAR ObjectName[128];
 	WCHAR FieldName[128];
-	ULONG Offset;
 } REQUIRED_OFFSET, *PREQUIRED_OFFSET;
-
 
 typedef struct _MESSAGE_FORM {
 	USHORT Type;

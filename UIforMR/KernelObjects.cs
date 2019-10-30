@@ -420,7 +420,6 @@ namespace UIforMR
                 return calculatedSize;
             }
 
-
             /// <summary>
             /// If the 'OriginalData' is Zero, it returns the Positions of BITs of this Field.
             /// If the 'OriginalData' is non-Zero, it returns the Value that Bit-Masked 'OriginalData' using this Field's Bits.
@@ -714,10 +713,10 @@ namespace UIforMR
                 byte dataType = 0;
                 int i = 0;
 
+
                 ///////////////////////////////////////////////////////////////////////////////////////////
                 ////////////////////                  OBJECT SIZE                    //////////////////////
                 ///////////////////////////////////////////////////////////////////////////////////////////
-
                 // UNLOCK the OBJECT that the size has already been known.
                 if((this.Size != 0xFFFFFFFF) && ((this.Size >> 31) == 1))
                     this.Size &= (~((uint)1 << 31));
@@ -733,6 +732,7 @@ namespace UIforMR
                     }       
                 }
 
+
                 ////////////////////////////////////////////////////////////////////////////////////////////
                 ////////////////////                  UNKNOWN FIELDS                     ///////////////////
                 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -743,7 +743,6 @@ namespace UIforMR
                 for (i = 0; i < this.Fields.Count; i++)  // Include the Last Field.
                 {
                     dataType = (byte)(this.Fields[i].FieldType >> 24);
-
                     if ((dataType & 0xC0) == 0xC0)
                     {
                         do
@@ -838,6 +837,7 @@ namespace UIforMR
                                 break;
                         } while ((dataType & 0xC0) == 0x80);
 
+
                         ////////////////////////////////////////////////////////////////////////////////////////
                         //////////////////      Process the UNKNOWNSIZE Fields in UNIONs.     //////////////////
                         ////////////////////////////////////////////////////////////////////////////////////////
@@ -889,6 +889,7 @@ namespace UIforMR
                                 }
 
                             }
+
                             unknownFields.Clear();
                         }
 
@@ -1144,42 +1145,57 @@ namespace UIforMR
                     CheckWholeFieldsInRegisteredObejcts(Registered);
                     return true;
                 }
-                
-                List<string> context = new List<string>();
-                ushort maxLengthOfName = 0;
-                ushort maxLengthOfDesc = 0;
 
-                context.Clear();
-
-                context.Add("====================================================");
-                context.Add(String.Format(" ::: {0} : 0x{1:X3} ({2})\t\t\t:::", "Registered Size", this.Size, this.Size));
-                context.Add(String.Format(" ::: {0} : 0x{1:X3} ({2})\t\t\t:::", "Calculated Size", calculatedSize, calculatedSize));
-                context.Add("====================================================\r\n");
-                context.Add(this.Name);
-
-                foreach (KOBJECT_FIELD field in this.Fields)
+                if (SHOW_DEBUGGING_MESSAGE_FOR_OVERWRITTING_THE_OBJECT_SIZE)
                 {
-                    if (field.Name.Length > maxLengthOfName)
-                        maxLengthOfName = (ushort)field.Name.Length;
-                    if (field.Description.Length > maxLengthOfDesc)
-                        maxLengthOfDesc = (ushort)field.Description.Length;
+                    List<string> context = new List<string>();
+                    ushort maxLengthOfName = 0;
+                    ushort maxLengthOfDesc = 0;
+
+                    context.Clear();
+
+                    context.Add("====================================================");
+                    context.Add(String.Format(" ::: {0} : 0x{1:X3} ({2})\t\t\t:::", "Registered Size", this.Size, this.Size));
+                    context.Add(String.Format(" ::: {0} : 0x{1:X3} ({2})\t\t\t:::", "Calculated Size", calculatedSize, calculatedSize));
+                    context.Add("====================================================\r\n");
+                    context.Add(this.Name);
+
+                    foreach (KOBJECT_FIELD field in this.Fields)
+                    {
+                        if (field.Name.Length > maxLengthOfName)
+                            maxLengthOfName = (ushort)field.Name.Length;
+                        if (field.Description.Length > maxLengthOfDesc)
+                            maxLengthOfDesc = (ushort)field.Description.Length;
+                    }
+                    maxLengthOfName += 10;
+
+                    for (int i = 0; i < this.Fields.Count; i++)
+                        context.Add(this.Fields[i].ToString(maxLengthOfName, maxLengthOfDesc));
+
+                    DebuggingForm debuggingForm = new DebuggingForm("Size Check for " + this.Name, context.ToArray(), System.Windows.Forms.MessageBoxButtons.YesNo, "Do you want to OVERWRITE it?");
+                    if (debuggingForm.ShowDialog() == System.Windows.Forms.DialogResult.Yes)
+                    {
+                        this.Size = calculatedSize;
+                        CheckWholeFieldsInRegisteredObejcts(Registered);
+                        return true;
+                    }
+                    else
+                        return false;
                 }
-                maxLengthOfName += 10;
-
-                for (int i = 0; i < this.Fields.Count; i++)
-                    context.Add(this.Fields[i].ToString(maxLengthOfName, maxLengthOfDesc));
-
-                DebuggingForm debuggingForm = new DebuggingForm("Size Check for " + this.Name, context.ToArray(), System.Windows.Forms.MessageBoxButtons.YesNo, "Do you want to OVERWRITE it?");
-                if (debuggingForm.ShowDialog() == System.Windows.Forms.DialogResult.Yes)
+                else
                 {
+                    // Always, OverWrite.
                     this.Size = calculatedSize;
                     CheckWholeFieldsInRegisteredObejcts(Registered);
                     return true;
                 }
-                else
-                    return false;
             }
-            
+
+
+
+            //////////////////////////////////////////////////////////////////////
+            /////////////////////          INTERFACE         /////////////////////
+            //////////////////////////////////////////////////////////////////////
             internal int GetFieldOffset(string FieldName)
             {
                 if ((FieldName.Length > 0) && (this.Fields.Count > 0))
@@ -1197,12 +1213,15 @@ namespace UIforMR
 
 
         //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
+        ////////////////////          START POINT         ////////////////////
         //////////////////////////////////////////////////////////////////////
         internal volatile static List<KERNEL_OBJECT> Registered = null;
         internal MainForm form = null;
         //private Thread ParsingThread = null;
         internal static System.Drawing.Point debuggingFormLocation = System.Drawing.Point.Empty;    // Store the Last Location of Debugging Form.
+        
+        //////////////////////////////////////////  ->  MENU - Configuration.
+        internal static bool SHOW_DEBUGGING_MESSAGE_FOR_OVERWRITTING_THE_OBJECT_SIZE = false;
 
         public KernelObjects(MainForm f)
         {
@@ -1213,6 +1232,7 @@ namespace UIforMR
 
             InitializeList();
            
+            // Initialize this class in the new THREAD.
             //ParsingThread = new Thread(InitializeList);
             //ParsingThread.Start();
         }
@@ -1294,7 +1314,6 @@ namespace UIforMR
                 //}
             }
         }
-
 
         internal void ParsingStarter(string FileName)
         {

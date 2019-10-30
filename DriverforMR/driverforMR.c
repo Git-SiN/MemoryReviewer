@@ -16,7 +16,6 @@ typedef struct _REQUIRED_OFFSET_ENTRY {
 	struct _REQUIRED_OFFSET Required;
 } REQUIRED_OFFSET_ENTRY, *PREQUIRED_OFFSET_ENTRY;
 
-/////////////////////////////////////  이거 위로는 아직 구현 안함.
 typedef struct _TARGET_PROCESS {
 	ULONG ProcessId;
 	PEPROCESS pEprocess;
@@ -46,20 +45,19 @@ typedef struct _MESSAGE_ENTRY {
 
 
 #pragma pack()
-
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 DRIVER_INITIALIZE DriverEntry;
 DRIVER_DISPATCH DispatchRoutine;
 DRIVER_DISPATCH DispatchRead;
-DRIVER_DISPATCH DispatchWrite;
+//DRIVER_DISPATCH DispatchWrite;
 DRIVER_DISPATCH DispatchControl;
 DRIVER_CANCEL CancelMessageIRP;
 DRIVER_UNLOAD UnLoad;
 
 BOOLEAN MessageMaker(USHORT, PVOID, ULONG);
-NTSTATUS WorkerStarter(PDEVICE_EXTENSION, PMESSAGE_FORM);
+//NTSTATUS WorkerStarter(PDEVICE_EXTENSION, PMESSAGE_FORM);
 NTSTATUS ConnectWithApplication(PDEVICE_EXTENSION);
 VOID CachingRequiredOffset(PDEVICE_EXTENSION, PREQUIRED_OFFSET);
 LONG GetRequiredOffsets(PWCHAR, PWCHAR);
@@ -67,16 +65,14 @@ NTSTATUS InitializeTargetProcess(PDEVICE_EXTENSION, USHORT, PWCHAR);
 
 // THREAD.
 KSTART_ROUTINE CommunicationThread;
-KSTART_ROUTINE WorkerThread;
+//KSTART_ROUTINE WorkerThread;
 
 // For Test....
-VOID TestForMessageQueuing(ULONG);
+//VOID TestForMessageQueuing(ULONG);
 VOID ShowByteStreamToDbg(PUCHAR, ULONG);
-
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-
 
 
 WCHAR nameBuffer[] = L"\\Device\\MemoryReviewer";
@@ -94,8 +90,8 @@ NTSTATUS InitializeTargetProcess(PDEVICE_EXTENSION pExtension, USHORT targetId, 
 	DbgPrintEx(101, 0, "::: TARGET PROCESS : %ws [%d]", targetName, targetId);
 
 	// Test for URGENT_GET_REQUIRED_OFFSET..
-	offset = GetRequiredOffsets("_EPROCESS", "UniqueProcessId");
-	DbgPrintEx(101, 0, "::: GET REQUIRED OFFSET TEST ::: UniqueProcessId : %d", offset);
+	offset = GetRequiredOffsets(L"_EPROCESS", L"UniqueProcessId");
+	DbgPrintEx(101, 0, "::: GET REQUIRED OFFSET TEST ::: UniqueProcessId : 0x%03X", offset);
 
 	return STATUS_SUCCESS;
 
@@ -173,13 +169,13 @@ VOID CachingRequiredOffset(PDEVICE_EXTENSION pExtension, PREQUIRED_OFFSET respon
 		RtlZeroMemory(pRequiredEntry, sizeof(REQUIRED_OFFSET_ENTRY));
 		RtlCopyMemory(&(pRequiredEntry->Required), response, sizeof(REQUIRED_OFFSET));
 		InsertTailList(&(pExtension->RequiredOffsetCache), &(pRequiredEntry->ListEntry));
+
+		// For Test....
+		DbgPrintEx(101, 0, "Cached the Offset for %ws!%ws : 0x%03X", pRequiredEntry->Required.ObjectName, pRequiredEntry->Required.FieldName, pRequiredEntry->Required.Offset);
 	}
 
 	return;
 }
-
-/////////////// URGENT RequiredOffset 메시지 큐잉까지는 됐음.	-> 이 상태에서 병목...		-> MessageBox 때문인가????	-> 이거 주석하고 마지막 테스트 함.
-//		그리고 CancelRoutine 내부에서 락 전부다 풀어보자.,.....
 
 LONG GetRequiredOffsets(PWCHAR ObjectName, PWCHAR FieldName) {
 	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)(pMyDevice->DeviceExtension);
@@ -202,12 +198,12 @@ LONG GetRequiredOffsets(PWCHAR ObjectName, PWCHAR FieldName) {
 	pRequired = ExAllocatePool(NonPagedPool, sizeof(REQUIRED_OFFSET));
 	if (pRequired) {
 		RtlZeroMemory(pRequired, sizeof(REQUIRED_OFFSET));
-		RtlCopyMemory(pRequired, ObjectName, wcsnlen_s(ObjectName, 128) * 2);
-		RtlCopyMemory(((PREQUIRED_OFFSET)pRequired)->FieldName, FieldName, wcsnlen_s(FieldName, 128) * 2);
+		RtlCopyMemory(((PREQUIRED_OFFSET)pRequired)->ObjectName, ObjectName, (wcsnlen_s(ObjectName, 128) + 1) * 2);
+		RtlCopyMemory(((PREQUIRED_OFFSET)pRequired)->FieldName, FieldName, (wcsnlen_s(FieldName, 128) + 1) * 2);
 
-		if (MessageMaker(SIN_URGENT_MESSAGE | SIN_RESPONSE_REQUIRED_OFFSET, pRequired, sizeof(REQUIRED_OFFSET))) {
+		if (MessageMaker(SIN_URGENT_MESSAGE | SIN_GET_REQUIRED_OFFSET, pRequired, sizeof(REQUIRED_OFFSET))) {
 			// Wait For the Response Message.
-			//KeWaitForSingleObject(&(pExtension->RequiredOffsetEvent), Executive, KernelMode, FALSE, NULL);
+			KeWaitForSingleObject(&(pExtension->RequiredOffsetEvent), Executive, KernelMode, FALSE, NULL);
 
 			if (!IsListEmpty(&(pExtension->RequiredOffsetCache))) {
 				pRequired = pExtension->RequiredOffsetCache.Blink;	// The Last Entry.
@@ -264,89 +260,89 @@ BOOLEAN MessageMaker(USHORT messageType, PVOID pMessage, ULONG messageLength) {
 		}
 		
 		DbgPrintEx(101, 0, "%sFailed to Allocate the Pool for a MessageEntry", dbgPrefix);
-		return FALSE;
 	}
-	
+
+	return FALSE;
 }
 
 // It's only for test....
-VOID TestForMessageQueuing(ULONG count) {
-	WCHAR message[] = L"It's for test.";
-	
-	while(count--) {
-		if (!MessageMaker(count, message, sizeof(message)))
-			break;
-	}
-
-	DbgPrintEx(101, 0, " ::: Test Messgae : %ws[%d]\n", message, sizeof(message));
-}
+//VOID TestForMessageQueuing(ULONG count) {
+//	WCHAR message[] = L"It's for test.";
+//	
+//	while(count--) {
+//		if (!MessageMaker(count, message, sizeof(message)))
+//			break;
+//	}
+//
+//	DbgPrintEx(101, 0, " ::: Test Messgae : %ws[%d]\n", message, sizeof(message));
+//}
 
 // This Routine is for checking the byte stream.
 VOID ShowByteStreamToDbg(PUCHAR pBuffer, ULONG length) {
-	UCHAR line[52] = { 0, };		// 16 * 3 + 3 + 1
+	UCHAR line[53] = { 0, };	// 16 * 3 + 5
 	ULONG i = 0;
+	ULONG stored = 0;
 
-	DbgPrintEx(101, 0, "::: Show - %s", pBuffer);
-	/*RtlZeroMemory(line, 52);*/
 	for (i = 0; i < length; i++) {
-		_snprintf_s(line, 52, 3, "%02X ", (UCHAR)*(pBuffer + i));
-		DbgPrintEx(101, 0, "%02X ", (UCHAR)*(pBuffer + i));
+		stored += _snprintf_s(line + stored, 53, 3, "%02X ", (UCHAR)*(pBuffer + i));
+
 		if ((i + 1) % 16 == 0) {
 			DbgPrintEx(101, 0, "%s", line);
-			RtlZeroMemory(line, 52);
+			RtlZeroMemory(line, 53);
+			stored = 0;
 		}
-		
-		if((i + 1) % 4 == 0)
-			_snprintf_s(line, 52, 1, " ");
+		else {
+			if ((i + 1) % 4 == 0)
+				stored += _snprintf_s(line + stored, 53, 1, " ");
 
-		if((i + 1)% 8 == 0)
-			_snprintf_s(line, 52, 1, " ");
+			if ((i + 1) % 8 == 0)
+				stored += _snprintf_s(line + stored, 53, 1, " ");
+		}
 	}
 
 	if (strlen(line) > 0)
 		DbgPrintEx(101, 0, "%s", line);
 }
 
-NTSTATUS WorkerStarter(PDEVICE_EXTENSION pExtension, PMESSAGE_FORM pMessageForm) {
-	HANDLE hThread = NULL;
-	OBJECT_ATTRIBUTES objAttr;
-	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
-	PVOID context = NULL;
 
-	if (pExtension && pMessageForm) {
-		context = ExAllocatePool(NonPagedPool, sizeof(MESSAGE_FORM) + 4);
-		if (context) {
-			RtlCopyMemory(context, &pExtension, 4);
-			RtlCopyMemory((PVOID)((ULONG)context + 4), pMessageForm, sizeof(MESSAGE_FORM));
-
-			InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-			ntStatus = PsCreateSystemThread(&hThread, THREAD_ALL_ACCESS, &objAttr, NULL, NULL, WorkerThread, context);
-			if (NT_SUCCESS(ntStatus)) {
-				ZwClose(hThread);
-			}
-		}
-	}
-
-	return ntStatus;
-}
-
-////////////////////////////////////		작업 스레드를 만들어도 병목걸리네.........
-
-
-VOID WorkerThread(PVOID context) {
-	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)*((PULONG)context);
-	PMESSAGE_FORM pMessageForm = (PMESSAGE_FORM)((ULONG)context + 4);
-
-	switch (pMessageForm->Type) {
-	case SIN_SET_TARGET_OBJECT:
-		InitializeTargetProcess(pExtension, pMessageForm->Res, pMessageForm->uMessage);
-		break;
-	default:
-		break;
-	}
-
-	ExFreePool(context);
-}
+//
+//NTSTATUS WorkerStarter(PDEVICE_EXTENSION pExtension, PMESSAGE_FORM pMessageForm) {
+//	HANDLE hThread = NULL;
+//	OBJECT_ATTRIBUTES objAttr;
+//	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
+//	PVOID context = NULL;
+//
+//	if (pExtension && pMessageForm) {
+//		context = ExAllocatePool(NonPagedPool, sizeof(MESSAGE_FORM) + 4);
+//		if (context) {
+//			RtlCopyMemory(context, &pExtension, 4);
+//			RtlCopyMemory((PVOID)((ULONG)context + 4), pMessageForm, sizeof(MESSAGE_FORM));
+//
+//			InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+//			ntStatus = PsCreateSystemThread(&hThread, THREAD_ALL_ACCESS, &objAttr, NULL, NULL, WorkerThread, context);
+//			if (NT_SUCCESS(ntStatus)) {
+//				ZwClose(hThread);
+//			}
+//		}
+//	}
+//
+//	return ntStatus;
+//}
+//
+//VOID WorkerThread(PVOID context) {
+//	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)*((PULONG)context);
+//	PMESSAGE_FORM pMessageForm = (PMESSAGE_FORM)((ULONG)context + 4);
+//
+//	switch (pMessageForm->Type) {
+//	case SIN_SET_TARGET_OBJECT:
+//		InitializeTargetProcess(pExtension, pMessageForm->Res, pMessageForm->uMessage);
+//		break;
+//	default:
+//		break;
+//	}
+//
+//	ExFreePool(context);
+//}
 
 VOID CommunicationThread(PVOID context) {
 	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)context;
@@ -371,6 +367,7 @@ VOID CommunicationThread(PVOID context) {
 			KeReleaseSpinLock(&(pExtension->MessageLock), kIrql);
 			if (pMessageEntry != &(pExtension->MessageListHead)) {
 				if (pMessageEntry && (pMessageEntry->pMessageForm)) {
+					// LOOP for Waiting for an IRP.
 					while (TRUE) {
 						KeWaitForSingleObject(&(pExtension->PendingIRPEvent), Executive, KernelMode, FALSE, NULL);
 						if (pExtension->bTerminate) {
@@ -397,6 +394,9 @@ VOID CommunicationThread(PVOID context) {
 							//////////////////			METHOD_IO_DIRECT			//////////////////
 							//////////////////////////////////////////////////////////////////////////
 							if ((pIrp->MdlAddress) && (MmGetSystemAddressForMdl(pIrp->MdlAddress)) && (MmGetMdlByteCount(pIrp->MdlAddress) == sizeof(MESSAGE_FORM))) {
+								if((pMessageEntry->pMessageForm->Type) & SIN_URGENT_MESSAGE)
+									DbgPrintEx(101, 0, "%sAn URGENT IRP is completed...", dbgPrefix);
+
 								RtlCopyMemory(MmGetSystemAddressForMdl(pIrp->MdlAddress), (pMessageEntry->pMessageForm), sizeof(MESSAGE_FORM));
 								ExFreePool(pMessageEntry->pMessageForm);
 								ExFreePool(pMessageEntry);
@@ -408,7 +408,7 @@ VOID CommunicationThread(PVOID context) {
 								break;
 							}
 							else {
-								// In this Case, Jut Continue this Loop...
+								// In this Case, Just Continue this Loop...
 								DbgPrintEx(101, 0, "%sThe MDL of the Pending IRP is corrupted...\n", dbgPrefix);
 								pIrp->IoStatus.Status = STATUS_UNSUCCESSFUL;
 								pIrp->IoStatus.Information = 0;
@@ -494,7 +494,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING regPath) {
 
 	pDriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchControl;
 	pDriverObject->MajorFunction[IRP_MJ_READ] = DispatchRead;
-	pDriverObject->MajorFunction[IRP_MJ_WRITE] = DispatchWrite;
+	//pDriverObject->MajorFunction[IRP_MJ_WRITE] = DispatchWrite;
 	pDriverObject->DriverUnload = UnLoad;
 
 	RtlInitUnicodeString(&deviceName, nameBuffer);
@@ -514,10 +514,12 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING regPath) {
 
 				return ntStatus;
 			}
+
 			IoDeleteSymbolicLink(&linkName);
 		}
 		else
 			DbgPrintEx(101, 0, "%sFailed to Create the Symbolic Link...\n", dbgPrefix);
+		
 		IoDeleteDevice(pMyDevice);
 	}
 	else
@@ -537,49 +539,37 @@ NTSTATUS DispatchControl(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 
 	if (pIrp->MdlAddress && (MmGetMdlByteCount(pIrp->MdlAddress) == sizeof(MESSAGE_FORM))) {
 		irpStack = IoGetCurrentIrpStackLocation(pIrp);
-		DbgPrintEx(101, 0, "%sMDL ADDRESS : 0x%08X[%d]", dbgPrefix, pIrp->AssociatedIrp.SystemBuffer, irpStack->Parameters.DeviceIoControl.InputBufferLength);
-
 		if (irpStack) {
 			ctlCode = (USHORT)(((irpStack->Parameters.DeviceIoControl.IoControlCode) >> 2) & 0xFFF);
-			DbgPrintEx(101, 0, "%s   %08X", dbgPrefix, ctlCode);
 			switch (ctlCode) {
 			case SIN_TERMINATE_USER_THREAD:
 				if (isStartedUserCommunicationThread) {
 					isStartedUserCommunicationThread = FALSE;
-					ntStatus = STATUS_SUCCESS;
 					DbgPrintEx(101, 0, "%sMarked the TERMINATE_USER_THREAD...\n", dbgPrefix);
+
+					ntStatus = STATUS_SUCCESS;
 				}
 				break;
 			case SIN_RESPONSE_REQUIRED_OFFSET:
-				DbgPrintEx(101, 0, "%sSIN_RESPONSE_REQUIRED_OFFSET", dbgPrefix); 
-				/*if (pMessageForm->Res != 0xFFFF) {
+				pMessageForm = MmGetSystemAddressForMdl(pIrp->MdlAddress);
+				if (pMessageForm->Res != 0xFFFF)
 					CachingRequiredOffset(pExtension, &(pMessageForm->Required));
-				}*/
-				KeSetEvent(&(pExtension->RequiredOffsetEvent), 0, FALSE);	// Always, AWAKE.
+				
+				// Always, AWAKE.
+				if(!IsListEmpty(&(pExtension->RequiredOffsetEvent.Header.WaitListHead)))
+					KeSetEvent(&(pExtension->RequiredOffsetEvent), 0, FALSE);	
+		
 				ntStatus = STATUS_SUCCESS;
 				break;
 			case SIN_SET_TARGET_OBJECT:
 				pMessageForm = MmGetSystemAddressForMdl(pIrp->MdlAddress);
-				// For Test....
-				//ShowByteStreamToDbg((PUCHAR)pMessageForm, 128);
-				//DbgPrintEx(101, 0, "%sSET TARGET PROCESS : %ws[%d]", dbgPrefix, pMessageForm->uMessage, pMessageForm->Res);
-				ntStatus = WorkerStarter(pExtension, pMessageForm);
-				//ntStatus = InitializeTargetProcess(pExtension, pMessageForm->Res, pMessageForm->uMessage);
+				ntStatus = InitializeTargetProcess(pExtension, pMessageForm->Res, pMessageForm->uMessage);
 				break;
 			case SIN_GET_KERNEL_OBJECT:
 			case SIN_GET_BYTE_STREAM:
 				pMessageForm = MmGetSystemAddressForMdl(pIrp->MdlAddress);
-				if (pMessageForm && (pMessageForm->Size != 0) && (((pMessageForm->Address != 0) || (wcslen(pMessageForm->bMessage) > 0)))) {
-					//pMessageForm = ExAllocatePool(NonPagedPool, sizeof(MESSAGE_FORM));
-					//if (pMessageForm != NULL) {
-					//	RtlCopyMemory(pMessageForm, MmGetSystemAddressForMdl(pIrp->MdlAddress), sizeof(MESSAGE_FORM));
-					//	ntStatus = STATUS_SUCCESS;
-					//	haveToWork = TRUE;
-					//}
-					// 워커스레드로 후처리하려고 했는데, 애초에 DispatchRoutine 자체가 새로운 스레드로 열린다..	-> 아래 함수까지 다 제거해야 함.
-					//	-> DispatchRoutine 내부에서 KeWaitForSingleObject()를 사용할 수 없음.
-					//		-> 워커 스레드 다시 시도............
-
+				if (pMessageForm && (pMessageForm->Size != 0) && (((pMessageForm->Address != 0) || (wcslen(pMessageForm->uMessage) > 0)))) {
+					//
 				}
 				break;
 			default:
@@ -592,7 +582,6 @@ NTSTATUS DispatchControl(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return ntStatus;
 }
-
 
 NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 	PUCHAR pBuffer = NULL;
@@ -624,30 +613,28 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 			if (!isStartedUserCommunicationThread) {
 				// For Synchronization with the User Communication Thread...
 				*(PUSHORT)pBuffer = INITIALIZE_COMMUNICATION;
-				RtlCopyMemory(pBuffer + 4, L"HI, I Received your First message...", 72);
 				isStartedUserCommunicationThread = TRUE;
 
 				// For Test...
+				//DbgPrintEx(101, 0, "IN READ MESSAGE_FORM SIZE : %d - %d", sizeof(MESSAGE_FORM), MmGetMdlByteCount(pIrp->MdlAddress));
 				//TestForMessageQueuing(10);
+				//wcscpy(((PMESSAGE_FORM)pBuffer)->uMessage, L"HI, I Received your First message...");	// 72
 
 				pIrp->IoStatus.Information = sizeof(MESSAGE_FORM);
 				pIrp->IoStatus.Status = STATUS_SUCCESS;
 				IoCompleteRequest(pIrp, IO_NO_INCREMENT);
-
 				return STATUS_SUCCESS;
 			}
 			else {
 				KeAcquireSpinLock(&(pExtension->PendingIRPLock), &kIrql);
 				if (pExtension->PendingIRP) {
-					// A Pending IRP is already exist...
-					//	-> Maybe, This case will not be occurred.
+					// A Pending IRP is already exist : Maybe, This case will not be occurred.
 					pIrp->IoStatus.Information = 0;
 					pIrp->IoStatus.Status = STATUS_UNSUCCESSFUL;
 					KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
-
 					DbgPrintEx(101, 0, "%sA Pending IRP is already exist...", dbgPrefix);
-					IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
+					IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 					return STATUS_UNSUCCESSFUL;
 				}
 				else {
@@ -661,15 +648,14 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 							pOldCancelRoutine = IoSetCancelRoutine(pIrp, NULL);
 							if (pOldCancelRoutine) {
 								pExtension->PendingIRP = NULL;
-
 								pIrp->IoStatus.Status = STATUS_CANCELLED;
 								KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
-								IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
+								IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 								return STATUS_PENDING;
 							}
 							else {
-								// In this case, The Pending IRP will be cancelled in my Cancel Routine...
+								// In this case, The IRP will be cancelled in my Cancel Routine...
 							}
 						}
 						else {
@@ -678,8 +664,8 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 							KeSetEvent(&(pExtension->PendingIRPEvent), 0, FALSE);
 						}
 					}
-					KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
 
+					KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
 					return STATUS_PENDING;
 				}
 			}
@@ -689,41 +675,42 @@ NTSTATUS DispatchRead(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 	DbgPrintEx(101, 0, "%sThe MDL of the IRP is corrupted...%d\n", dbgPrefix, MmGetMdlByteCount(pIrp->MdlAddress));
 	pIrp->IoStatus.Information = 0;
 	pIrp->IoStatus.Status = STATUS_UNSUCCESSFUL;
-	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
+	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return STATUS_UNSUCCESSFUL;
 }
 
-NTSTATUS DispatchWrite(PDEVICE_OBJECT pDeviceObejct, PIRP pIrp) {
-	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)(pDeviceObejct->DeviceExtension);
-	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
-	PMESSAGE_FORM pMessage = NULL;
-	UCHAR dbgPrefix[] = "::: IN WRITE Dispatcher : ";
-
-	if (pIrp->MdlAddress && (MmGetMdlByteCount(pIrp->MdlAddress) == sizeof(MESSAGE_FORM))) {
-		pMessage = MmGetSystemAddressForMdl(pIrp->MdlAddress);
-		if (pMessage) {
-			switch (pMessage->Type) {
-			case SIN_RESPONSE_REQUIRED_OFFSET:
-				DbgPrintEx(101, 0, "%sSIN_RESPONSE_REQUIRED_OFFSET", dbgPrefix);
-				ShowByteStreamToDbg(&(pMessage->Required), 512);
-				/*if (pMessageForm->Res != 0xFFFF) {
-				CachingRequiredOffset(pExtension, &(pMessageForm->Required));
-				}*/
-				if(!IsListEmpty(&(pExtension->RequiredOffsetEvent.Header.WaitListHead)))
-					KeSetEvent(&(pExtension->RequiredOffsetEvent), 0, FALSE);	// Always, AWAKE.
-
-				ntStatus = STATUS_SUCCESS;
-				break;
-			default:
-				break;
-			}
-		}
-	}
-
-	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
-	return ntStatus;
-}
+//
+//NTSTATUS DispatchWrite(PDEVICE_OBJECT pDeviceObejct, PIRP pIrp) {
+//	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)(pDeviceObejct->DeviceExtension);
+//	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
+//	PMESSAGE_FORM pMessage = NULL;
+//	UCHAR dbgPrefix[] = "::: IN WRITE Dispatcher : ";
+//
+//	if (pIrp->MdlAddress && (MmGetMdlByteCount(pIrp->MdlAddress) == sizeof(MESSAGE_FORM))) {
+//		pMessage = MmGetSystemAddressForMdl(pIrp->MdlAddress);
+//		if (pMessage) {
+//			switch (pMessage->Type) {
+//			case SIN_RESPONSE_REQUIRED_OFFSET:
+//				DbgPrintEx(101, 0, "%sSIN_RESPONSE_REQUIRED_OFFSET", dbgPrefix);
+//				//ShowByteStreamToDbg(&(pMessage->Required), 516);
+//				/*if (pMessageForm->Res != 0xFFFF) {
+//				CachingRequiredOffset(pExtension, &(pMessageForm->Required));
+//				}*/
+//				if(!IsListEmpty(&(pExtension->RequiredOffsetEvent.Header.WaitListHead)))
+//					KeSetEvent(&(pExtension->RequiredOffsetEvent), 0, FALSE);	// Always, AWAKE.
+//
+//				ntStatus = STATUS_SUCCESS;
+//				break;
+//			default:
+//				break;
+//			}
+//		}
+//	}
+//
+//	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
+//	return ntStatus;
+//}
 
 VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 	UNICODE_STRING linkName;
@@ -731,7 +718,6 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 	KIRQL kIrql;
 	PMESSAGE_ENTRY pMessageEntry = NULL;
 	UCHAR dbgPrefix[] = "::: IN UNLOAD ROUTINE : ";
-
 
 	if (!IsListEmpty(&(pExtension->RequiredOffsetEvent.Header.WaitListHead)))
 		KeSetEvent(&(pExtension->RequiredOffsetEvent), 0, FALSE);
@@ -743,9 +729,8 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 		KeSetEvent(&(pExtension->PendingIRPEvent), 0, FALSE); 
 	KeReleaseSemaphore(&(pExtension->CommunicationThreadSemaphore), 0, 1, FALSE);
 	KeWaitForSingleObject(pExtension->pCommunicationThread, Executive, KernelMode, FALSE, NULL);
-	DbgPrintEx(101, 0, "%sTerminate my Communication Thread...\n", dbgPrefix);
+	DbgPrintEx(101, 0, "%sTerminated the Communication Thread...\n", dbgPrefix);
 
-	
 	// Clear the Message Queue.
 	KeAcquireSpinLock(&(pExtension->MessageLock), &kIrql);
 	while (!IsListEmpty(&(pExtension->MessageListHead))) {
@@ -753,13 +738,14 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 		if (pMessageEntry != &(pExtension->MessageListHead)) {
 			if (pMessageEntry->pMessageForm)
 				ExFreePool(pMessageEntry->pMessageForm);
+
 			ExFreePool(pMessageEntry);
 		}
 	}
 	KeReleaseSpinLock(&(pExtension->MessageLock), kIrql);
 	DbgPrintEx(101, 0, "%sClear the Message List...\n", dbgPrefix);
 
-	// Delete the DEVICE_OBJECT.
+	// Delete my DEVICE_OBJECT.
 	RtlInitUnicodeString(&linkName, linkBuffer);
 	IoDeleteSymbolicLink(&linkName);
 	if (pDriverObject->DeviceObject)
@@ -772,8 +758,8 @@ VOID UnLoad(PDRIVER_OBJECT pDriverObject) {
 NTSTATUS DispatchRoutine(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 	DbgPrintEx(101, 0, "MJ : %d\n", (IoGetCurrentIrpStackLocation(pIrp)->MajorFunction));
 	pIrp->IoStatus.Status = STATUS_SUCCESS;
-	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
+	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 	return STATUS_SUCCESS;
 }
 
@@ -798,11 +784,10 @@ VOID CancelMessageIRP(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 
 			pIrp->IoStatus.Status = STATUS_CANCELLED;
 			pIrp->IoStatus.Information = 0;
-
 			KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
-			IoCompleteRequest(pIrp, IO_NO_INCREMENT);
-
 			DbgPrintEx(101, 0, "%sA Pending IRP is Cancelled...\n", dbgPrefix);
+
+			IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 		}
 		else
 			KeReleaseSpinLock(&(pExtension->PendingIRPLock), kIrql);
