@@ -13,16 +13,17 @@
 ////////////////////////////////////////////////////////////////////////////////////
 ////			METHOD_OUT_DIRECT, FILE_READ_ACCESS | FILE_WRITE_ACCESS			////
 ////////////////////////////////////////////////////////////////////////////////////
-#define		SIN_MR_GET_VADROOT				0x02
+#define		SIN_MR_GET_VADROOT						0x02
 
-#define		SIN_SET_PRIMARY_OFFSETS			0xF0
-#define		SIN_SET_TARGET_OBJECT			0xF1
+#define		SIN_SELECT_TARGET_PROCESS				0x10
+#define		SIN_UNSELECT_TARGET_PROCESS				0x11
 
-#define		SIN_GET_BYTE_STREAM				0x40
-#define		SIN_GET_KERNEL_OBJECT			0x41
 
-#define		SIN_GET_REQUIRED_OFFSET			0xF0
-#define		SIN_RESPONSE_REQUIRED_OFFSET	0x04
+#define		SIN_GET_BYTE_STREAM						0x40
+#define		SIN_GET_KERNEL_OBJECT_CONTENTS			0x41
+
+#define		SIN_GET_REQUIRED_OFFSET					0xF0
+#define		SIN_RESPONSE_REQUIRED_OFFSET			0x04
 
 #pragma pack(1)
 

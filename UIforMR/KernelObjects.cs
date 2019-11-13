@@ -88,17 +88,15 @@ namespace UIforMR
 
 								                                010 : <unnamed-tag>     10 : ObjectType <------------------------ unnamed SIZE ------------------------>
                                                                 001 : PADDING FIELD     <-------------------------------- PADDING SIZE -------------------------------->
-								                                000 : Default DATA TYPE					                                    //10 0001 : STRING[ASCII]
-															                                                                                //10 0010 : STRING[UNICODE]
-
-															                                                                                00 ____ :   signed_
+								                                000 : Default DATA TYPE					                                    00 ____ :   signed_
 															                                                                                01 ____ : unsigned_
 															                            00 : HEXA                                           __ 0001 :           _CHAR
                                                                                         01 : BINARY                                         __ 0010 :	        _INT2B
 											                                            10 : DECIMAL			                            __ 0100 : 	        _INT4B
 											                                            11 : DATE			                                __ 1000 : 	        _INT8B
-
-                                                                                                                                            11 0000	: Void
+                                                                                        
+                                                                                                                                            10 0000	: Void
+                                                                                                                                            11 0000	: void*
             */
             private uint fieldType;
             internal uint FieldType { get { return fieldType; } }
@@ -106,8 +104,8 @@ namespace UIforMR
             internal KOBJECT_FIELD(uint offset, string name, string description)
             {
                 Offset = offset;
-                Name = name;
-                Description = description;
+                Name = name.Trim();
+                Description = description.Trim();
 
                 if (InitializeFieldType())
                 {
@@ -127,7 +125,7 @@ namespace UIforMR
                 {
                     Offset = offset;
                     Name = "P-A-D-D-I-N-G   F-I-E-L-D";
-                    Description = " P-A-D-D-I-N-G   B-Y-T-E-S";
+                    Description = "P-A-D-D-I-N-G   B-Y-T-E-S";
 
                     this.fieldType = size;
                     this.fieldType |= (1 << 24);
@@ -224,10 +222,18 @@ namespace UIforMR
                             }
                             else if ((key.First() == '[') && (key.Last() == ']'))
                             {
-                                result |= (Convert.ToUInt32(key.Trim(new char[] { '[', ']' })) << 12);
-                                result |= (1 << 28); 
+                                uint tmp = Convert.ToUInt32(key.Trim(new char[] { '[', ']' }));
+
+                                // If the Array Count can't be marked by 12-Bits, Mark 0xFFF[MAX].
+                                if (tmp > 0xFFF)
+                                    tmp = 0xFFF;
+                                result |= (tmp << 12);
+
+                                result |= (1 << 28);
                             }
                             else if (key == "void")
+                                result |= 0x20;
+                            else if (key == "void*")
                                 result |= 0x30;
                             else
                                 hasUnknownSymbols = true;
@@ -367,9 +373,17 @@ namespace UIforMR
 
                                 // If this field is the ARRAY type, divide with Array Count.
                                 if (isArray)
-                                    calculatedSize /= ((this.FieldType >> 12) & 0xFFF);
+                                {
+                                    uint arrayCount = (this.FieldType >> 12) & 0xFFF;
 
-                                if(index == -1)
+                                    // If the marked Array Count is 0xFFF[MAX], It will be parsed direct for each calculation.
+                                    if (arrayCount == 0xFFF)
+                                        arrayCount = Convert.ToUInt32(this.Description.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries).First());
+
+                                    calculatedSize /= arrayCount;
+                                }
+
+                                if (index == -1)
                                 {
                                     try
                                     {
@@ -415,7 +429,15 @@ namespace UIforMR
 
                 // 3. ARRAY :
                 if (isArray)
-                    calculatedSize *= ((this.FieldType >> 12) & 0xFFF);
+                {
+                    uint arrayCount = (this.FieldType >> 12) & 0xFFF;
+
+                    // If the marked Array Count is 0xFFF[MAX], It will be parsed direct for each calculation.
+                    if (arrayCount == 0xFFF)
+                        arrayCount = Convert.ToUInt32(this.Description.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries).First());
+
+                    calculatedSize *= arrayCount;
+                }
 
                 return calculatedSize;
             }
@@ -518,7 +540,7 @@ namespace UIforMR
             {
                 if (theList != null)
                 {
-                    Name = name;
+                    Name = name.Trim();
                     Size = size;
                     Fields = null;
                     UnnamedObjects = null;
@@ -1220,8 +1242,10 @@ namespace UIforMR
         //private Thread ParsingThread = null;
         internal static System.Drawing.Point debuggingFormLocation = System.Drawing.Point.Empty;    // Store the Last Location of Debugging Form.
         
-        //////////////////////////////////////////  ->  MENU - Configuration.
+
+        // Flags.
         internal static bool SHOW_DEBUGGING_MESSAGE_FOR_OVERWRITTING_THE_OBJECT_SIZE = false;
+        internal static bool isParsingNewFile = false;
 
         public KernelObjects(MainForm f)
         {
@@ -1269,7 +1293,7 @@ namespace UIforMR
 
             try
             {
-                requestedObject = new KERNEL_OBJECT(theList, ObjectName, 0xFFFFFFFF);
+                requestedObject = new KERNEL_OBJECT(theList, ObjectName.Trim(), 0xFFFFFFFF);
             }
             catch (Exception e)
             {
@@ -1315,7 +1339,7 @@ namespace UIforMR
             }
         }
 
-        internal void ParsingStarter(string FileName)
+        private static void ParsingStarter(string FileName)
         {
             StreamReader sr = null;
 
@@ -1420,7 +1444,7 @@ namespace UIforMR
         /// <param name="sr"></param>
         /// <param name="ObjectName"></param>
         /// <returns>The Last Line</returns>
-        private string KernelObjectParser(StreamReader sr, KERNEL_OBJECT currentObject, string currentLine = null)
+        private static string KernelObjectParser(StreamReader sr, KERNEL_OBJECT currentObject, string currentLine = null)
         {
             List<string> FailedLines = new List<string>();
             KOBJECT_FIELD currentField = null;
@@ -1476,9 +1500,9 @@ namespace UIforMR
                         return (false.ToString() + " " + currentObject.Name);
                     }
                 }
+                
 
                 depth = (short)currentLine.IndexOf('+');
-
                 if (depth > 0)
                 {
                     if (firstDepth < 0)     // Set my Depth.
@@ -1503,16 +1527,27 @@ namespace UIforMR
                         //else
                         //{
 
-                        if (noParsingForThisObject && (lastFieldName != null))
+                        if (noParsingForThisObject)
                         {
-                            if((currentObject != null) && (currentObject.Fields != null)){
-                                for(; searchIndex < currentObject.Fields.Count; searchIndex++)
+                            if (currentObject == null)
+                            {
+                                // This OBJECT is being parsed now. -> PASS.
+                                currentLine = null;
+                                continue;
+                            }
+                            else
+                            {
+                                if((currentObject.Fields != null) && (lastFieldName != null))
                                 {
-                                    if(currentObject.Fields[searchIndex].Name == lastFieldName)
+                                    for (; searchIndex < currentObject.Fields.Count; searchIndex++)
                                     {
-                                        currentField = currentObject.Fields[searchIndex];
-                                        break;
+                                        if (currentObject.Fields[searchIndex].Name == lastFieldName)
+                                        {
+                                            currentField = currentObject.Fields[searchIndex];
+                                            break;
+                                        }
                                     }
+
                                 }
                             }
                         }
@@ -1540,10 +1575,10 @@ namespace UIforMR
 
                             currentLine = KernelObjectParser(sr, subObject, currentLine);
                             
+
                             //////////////////////////////////////////////////////////////////////////////////////
                             ///////////////         The End of the SUB-OBJECT's Parsing.           ///////////////
                             //////////////////////////////////////////////////////////////////////////////////////
-
                             // Error In 'sr.ReadLine()'
                             if ((currentLine != null) && currentLine.StartsWith(false.ToString()))
                             {
@@ -1583,7 +1618,8 @@ namespace UIforMR
 
                                 subObject.EndOfObject(ObjectSize);
 
-                                if (!noParsingForThisObject && (((currentField.FieldType >> 24) & 7) == 2))   // '<unnamed-tag> Object' Type.
+                                // '<unnamed-tag> Object' Type.
+                                if (!noParsingForThisObject && (((currentField.FieldType >> 24) & 7) == 2))
                                     currentField.SetUnnamedObjectField(subObject.Size);
 
                                 // For Test...
@@ -1610,7 +1646,7 @@ namespace UIforMR
                             {
                                 currentField = null;
                                 lastFieldName = offsetNname[1];
-
+                                
                                 if (!noParsingForThisObject)
                                 {
                                     try
@@ -1637,6 +1673,7 @@ namespace UIforMR
                             }
                         }
 
+                        // Failed Lines...
                         currentField = null;
                         lastFieldName = null;
 
@@ -1674,6 +1711,10 @@ namespace UIforMR
                         currentObject.Fields.Clear();
                         currentObject.Fields = null;
                     }
+                    else
+                    {
+                        // These Fields will be represented as the PADDING FIELDs.
+                    }
                 }
 
                 // UNLOCK.
@@ -1701,6 +1742,62 @@ namespace UIforMR
             else
                 return 0;
         }
+
+        internal static void AddFileToParse(string FileName)
+        {
+            if (!isParsingNewFile)
+            {
+                // For Test...
+                //SHOW_DEBUGGING_MESSAGE_FOR_OVERWRITTING_THE_OBJECT_SIZE = true;
+
+                // LOCK.
+                isParsingNewFile = true;
+                ParsingStarter(FileName);
+                isParsingNewFile = false;
+
+                // For Test...
+                //SHOW_DEBUGGING_MESSAGE_FOR_OVERWRITTING_THE_OBJECT_SIZE = false;
+            }
+            else
+                System.Windows.Forms.MessageBox.Show("The previous parsing hasn't been finished yet.\r\nTry it later.", "Warning", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Warning);
+
+            return;
+        }
+
+        internal static string[] GetRegisteredObjectsList()
+        {
+            if(Registered.Count > 0)
+            {
+                List<string> nameList = new List<string>();
+                List<string> sizeList = new List<string>();
+                int maxLength = 0;
+
+                foreach (KERNEL_OBJECT currentObject in Registered)
+                {
+                    if ((currentObject.Fields != null) && (currentObject.Fields.Count > 0) && ((currentObject.Size >> 31) == 0))
+                    {
+                        sizeList.Add(String.Format("0x{0:X}", currentObject.Size));
+                        nameList.Add(currentObject.Name);
+
+                        if (maxLength < currentObject.Name.Length)
+                            maxLength = currentObject.Name.Length;
+                    }
+                }
+
+                if (maxLength > 0)
+                {
+                    string format = " {0,-" + maxLength + "}  [{1,6}]";
+                    string[] result = new string[nameList.Count];
+
+                    for(int i = 0; i < nameList.Count; i++)
+                        result[i] = String.Format(format, nameList[i], sizeList[i]);
+
+                    return result;
+                }
+            }
+
+            return null;
+        } 
 
         //////////////////////////////////////////////////////////////////
     }

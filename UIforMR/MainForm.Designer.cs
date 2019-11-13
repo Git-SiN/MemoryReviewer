@@ -35,6 +35,11 @@
             this.configureToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.driverToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.bConnect = new System.Windows.Forms.ToolStripMenuItem();
+            this.modulesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.kernelObjectsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.addFileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.showOBJECTToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.cbShowObject = new System.Windows.Forms.ToolStripComboBox();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
             this.tSelectedProcess = new System.Windows.Forms.TextBox();
             this.bKernel = new System.Windows.Forms.Button();
@@ -46,19 +51,20 @@
             this.columnHeader3 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader4 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader5 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
-            this.tProcess = new System.Windows.Forms.TabControl();
+            this.tabProcess = new System.Windows.Forms.TabControl();
             this.tabPage1 = new System.Windows.Forms.TabPage();
+            this.tvEprocess = new System.Windows.Forms.TreeView();
             this.lProcessInfo = new System.Windows.Forms.ListView();
             this.tThreads = new System.Windows.Forms.TabPage();
             this.tabPage2 = new System.Windows.Forms.TabPage();
             this.tabPage3 = new System.Windows.Forms.TabPage();
-            this.tvEprocess = new System.Windows.Forms.TreeView();
+            this.openFileDialog1 = new System.Windows.Forms.OpenFileDialog();
             this.menuStrip1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
             this.splitContainer1.SuspendLayout();
-            this.tProcess.SuspendLayout();
+            this.tabProcess.SuspendLayout();
             this.tabPage1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -69,7 +75,8 @@
             this.menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.fileToolStripMenuItem,
             this.toolsToolStripMenuItem,
-            this.configureToolStripMenuItem});
+            this.configureToolStripMenuItem,
+            this.modulesToolStripMenuItem});
             this.menuStrip1.Location = new System.Drawing.Point(0, 0);
             this.menuStrip1.Name = "menuStrip1";
             this.menuStrip1.Padding = new System.Windows.Forms.Padding(3, 2, 0, 2);
@@ -121,6 +128,51 @@
             this.bConnect.Text = "Connect";
             this.bConnect.Click += new System.EventHandler(this.bConnect_Click);
             // 
+            // modulesToolStripMenuItem
+            // 
+            this.modulesToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.kernelObjectsToolStripMenuItem});
+            this.modulesToolStripMenuItem.Name = "modulesToolStripMenuItem";
+            this.modulesToolStripMenuItem.Size = new System.Drawing.Size(99, 27);
+            this.modulesToolStripMenuItem.Text = "Modules";
+            // 
+            // kernelObjectsToolStripMenuItem
+            // 
+            this.kernelObjectsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.addFileToolStripMenuItem,
+            this.showOBJECTToolStripMenuItem});
+            this.kernelObjectsToolStripMenuItem.Name = "kernelObjectsToolStripMenuItem";
+            this.kernelObjectsToolStripMenuItem.Size = new System.Drawing.Size(236, 30);
+            this.kernelObjectsToolStripMenuItem.Text = "KernelObjects";
+            // 
+            // addFileToolStripMenuItem
+            // 
+            this.addFileToolStripMenuItem.Name = "addFileToolStripMenuItem";
+            this.addFileToolStripMenuItem.Size = new System.Drawing.Size(258, 30);
+            this.addFileToolStripMenuItem.Text = "Add new OBJECTs";
+            this.addFileToolStripMenuItem.Click += new System.EventHandler(this.addFileToolStripMenuItem_Click);
+            // 
+            // showOBJECTToolStripMenuItem
+            // 
+            this.showOBJECTToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.cbShowObject});
+            this.showOBJECTToolStripMenuItem.Name = "showOBJECTToolStripMenuItem";
+            this.showOBJECTToolStripMenuItem.Size = new System.Drawing.Size(258, 30);
+            this.showOBJECTToolStripMenuItem.Text = "Show OBJECT";
+            this.showOBJECTToolStripMenuItem.DropDownOpening += new System.EventHandler(this.showOBJECTToolStripMenuItem_DropDownOpening);
+            // 
+            // cbShowObject
+            // 
+            this.cbShowObject.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.cbShowObject.Font = new System.Drawing.Font("Consolas", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.cbShowObject.Margin = new System.Windows.Forms.Padding(0);
+            this.cbShowObject.Name = "cbShowObject";
+            this.cbShowObject.Size = new System.Drawing.Size(255, 31);
+            this.cbShowObject.Sorted = true;
+            this.cbShowObject.SelectedIndexChanged += new System.EventHandler(this.cbShowObject_SelectedIndexChanged);
+            this.cbShowObject.KeyDown += new System.Windows.Forms.KeyEventHandler(this.KeyLocker);
+            this.cbShowObject.KeyUp += new System.Windows.Forms.KeyEventHandler(this.KeyLocker);
+            // 
             // splitContainer1
             // 
             this.splitContainer1.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
@@ -142,7 +194,7 @@
             // splitContainer1.Panel2
             // 
             this.splitContainer1.Panel2.Controls.Add(this.lvProcessList);
-            this.splitContainer1.Panel2.Controls.Add(this.tProcess);
+            this.splitContainer1.Panel2.Controls.Add(this.tabProcess);
             this.splitContainer1.Size = new System.Drawing.Size(1200, 569);
             this.splitContainer1.SplitterDistance = 40;
             this.splitContainer1.SplitterWidth = 1;
@@ -233,18 +285,18 @@
             this.columnHeader5.Text = "File Path";
             this.columnHeader5.Width = 400;
             // 
-            // tProcess
+            // tabProcess
             // 
-            this.tProcess.Controls.Add(this.tabPage1);
-            this.tProcess.Controls.Add(this.tThreads);
-            this.tProcess.Controls.Add(this.tabPage2);
-            this.tProcess.Controls.Add(this.tabPage3);
-            this.tProcess.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tProcess.Location = new System.Drawing.Point(0, 0);
-            this.tProcess.Name = "tProcess";
-            this.tProcess.SelectedIndex = 0;
-            this.tProcess.Size = new System.Drawing.Size(1198, 526);
-            this.tProcess.TabIndex = 0;
+            this.tabProcess.Controls.Add(this.tabPage1);
+            this.tabProcess.Controls.Add(this.tThreads);
+            this.tabProcess.Controls.Add(this.tabPage2);
+            this.tabProcess.Controls.Add(this.tabPage3);
+            this.tabProcess.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tabProcess.Location = new System.Drawing.Point(0, 0);
+            this.tabProcess.Name = "tabProcess";
+            this.tabProcess.SelectedIndex = 0;
+            this.tabProcess.Size = new System.Drawing.Size(1198, 526);
+            this.tabProcess.TabIndex = 0;
             // 
             // tabPage1
             // 
@@ -257,6 +309,16 @@
             this.tabPage1.TabIndex = 0;
             this.tabPage1.Text = "Process Info";
             this.tabPage1.UseVisualStyleBackColor = true;
+            // 
+            // tvEprocess
+            // 
+            this.tvEprocess.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tvEprocess.FullRowSelect = true;
+            this.tvEprocess.HideSelection = false;
+            this.tvEprocess.Location = new System.Drawing.Point(3, 3);
+            this.tvEprocess.Name = "tvEprocess";
+            this.tvEprocess.Size = new System.Drawing.Size(1184, 485);
+            this.tvEprocess.TabIndex = 1;
             // 
             // lProcessInfo
             // 
@@ -275,7 +337,7 @@
             this.tThreads.Location = new System.Drawing.Point(4, 28);
             this.tThreads.Name = "tThreads";
             this.tThreads.Padding = new System.Windows.Forms.Padding(3);
-            this.tThreads.Size = new System.Drawing.Size(1190, 494);
+            this.tThreads.Size = new System.Drawing.Size(1190, 493);
             this.tThreads.TabIndex = 1;
             this.tThreads.Text = "Threads Info";
             this.tThreads.UseVisualStyleBackColor = true;
@@ -285,7 +347,7 @@
             this.tabPage2.Location = new System.Drawing.Point(4, 28);
             this.tabPage2.Name = "tabPage2";
             this.tabPage2.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPage2.Size = new System.Drawing.Size(1190, 494);
+            this.tabPage2.Size = new System.Drawing.Size(1190, 493);
             this.tabPage2.TabIndex = 2;
             this.tabPage2.Text = "tabPage2";
             this.tabPage2.UseVisualStyleBackColor = true;
@@ -295,20 +357,14 @@
             this.tabPage3.Location = new System.Drawing.Point(4, 28);
             this.tabPage3.Name = "tabPage3";
             this.tabPage3.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPage3.Size = new System.Drawing.Size(1190, 494);
+            this.tabPage3.Size = new System.Drawing.Size(1190, 493);
             this.tabPage3.TabIndex = 3;
             this.tabPage3.Text = "tabPage3";
             this.tabPage3.UseVisualStyleBackColor = true;
             // 
-            // tvEprocess
+            // openFileDialog1
             // 
-            this.tvEprocess.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tvEprocess.FullRowSelect = true;
-            this.tvEprocess.HideSelection = false;
-            this.tvEprocess.Location = new System.Drawing.Point(3, 3);
-            this.tvEprocess.Name = "tvEprocess";
-            this.tvEprocess.Size = new System.Drawing.Size(1184, 485);
-            this.tvEprocess.TabIndex = 1;
+            this.openFileDialog1.Filter = "MR_ files (MR_*.txt)|MR_*.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*";
             // 
             // MainForm
             // 
@@ -330,7 +386,7 @@
             this.splitContainer1.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).EndInit();
             this.splitContainer1.ResumeLayout(false);
-            this.tProcess.ResumeLayout(false);
+            this.tabProcess.ResumeLayout(false);
             this.tabPage1.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -344,7 +400,7 @@
         private System.Windows.Forms.SplitContainer splitContainer1;
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Button bSelect;
-        private System.Windows.Forms.TabControl tProcess;
+        private System.Windows.Forms.TabControl tabProcess;
         private System.Windows.Forms.TabPage tabPage1;
         private System.Windows.Forms.TabPage tThreads;
         private System.Windows.Forms.Button bKernel;
@@ -364,6 +420,12 @@
         private System.Windows.Forms.ColumnHeader columnHeader5;
         private System.Windows.Forms.TextBox tSelectedProcess;
         private System.Windows.Forms.TreeView tvEprocess;
+        private System.Windows.Forms.ToolStripMenuItem modulesToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem kernelObjectsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem addFileToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem showOBJECTToolStripMenuItem;
+        private System.Windows.Forms.OpenFileDialog openFileDialog1;
+        private System.Windows.Forms.ToolStripComboBox cbShowObject;
     }
 }
 

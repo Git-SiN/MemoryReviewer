@@ -88,9 +88,12 @@ namespace UIforMR
         public const ushort URGENT_GET_REQUIRED_OFFSET = 0x4F0;
 
         public const byte RESPONSE_REQUIRED_OFFSET = 0x04;
-        public const byte SET_TARGET_OBJECT = 0xF1;
+        
+        public const byte SELECT_TARGET_PROCESS = 0x10;
+        public const byte UNSELECT_TARGET_PROCESS = 0x11;
+
         public const byte GET_BYTE_STREAM = 0x40;
-        public const byte GET_KERNEL_OBJECT = 0x41;
+        public const byte GET_KERNEL_OBJECT_CONTENTS = 0x41;
 
 
 
@@ -121,6 +124,9 @@ namespace UIforMR
         }
 
         private sbyte alignedProcessList = 0;
+        private uint startAddressForThisStream = 0;
+        private uint receivedByteStreamLength = 0;
+        internal static byte[] dumpedByteStream = null;
 
         public MainForm()
         {
@@ -224,6 +230,9 @@ namespace UIforMR
                             break;
                         case URGENT_GET_REQUIRED_OFFSET:
                             GetRequiredOffsets((REQUIRED_OFFSET)ByteToStructure(message.bMessage, typeof(REQUIRED_OFFSET)));
+                            break;
+                        case GET_KERNEL_OBJECT_CONTENTS:
+                            ShowKernelObjectContents(message);
                             break;
                         default:
                             // For test...
@@ -409,6 +418,58 @@ namespace UIforMR
             SendControlMessage(message.Type, message);
         }
 
+        private void ShowKernelObjectContents(B_MESSAGE_FORM message)
+        {
+            // It's the first message for this byte Stream.
+            if (receivedByteStreamLength == 0)
+                startAddressForThisStream = message.Address;
+
+            receivedByteStreamLength += message.Size;
+            if ((message.Res == 0xFFFF) || (dumpedByteStream == null) || (receivedByteStreamLength > dumpedByteStream.Length))
+            {
+                // ERROR.
+                MessageBox.Show(String.Format("Error occured while dumping at 0x{0:X8}.", message.Address), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                dumpedByteStream = null;        // 이거 스위치용 플래그 필요함..
+                receivedByteStreamLength = 0;
+                startAddressForThisStream = 0;
+                return;
+            }
+
+
+            // Store the Received data.
+            uint currentStartIndex = message.Address - startAddressForThisStream;
+            for (uint i = 0; i < message.Size; i++)
+                dumpedByteStream[currentStartIndex + i] = message.bMessage[i];
+
+
+            // Received whole data.
+            if (receivedByteStreamLength == dumpedByteStream.Length)
+            {
+                TreeView currentTree = null;
+                int indexForKernelObjectInRegistered = -1;
+
+                switch (this.tabProcess.SelectedIndex)
+                {
+                    case 0:
+                        // _EPROCESS
+                        currentTree = this.tvEprocess;
+                        indexForKernelObjectInRegistered = KernelObjects.IndexOfThisObject(KernelObjects.Registered, "_EPROCESS");
+                        break;
+                    case 1:
+                        break;
+                    default:
+                        break;
+                }
+
+                if ((this.tvEprocess != null) && (indexForKernelObjectInRegistered != -1))
+                {
+                    // Parsing Start...
+                }
+            }
+            
+        }
+
         private void SendControlMessageThread(U_MESSAGE_FORM message)
         {
             if (!SendControlMessage(message.Type, message))
@@ -442,31 +503,51 @@ namespace UIforMR
                     U_MESSAGE_FORM message = new U_MESSAGE_FORM();
                     message.uMessage = lvProcessList.SelectedItems[0].SubItems[0].Text.Trim();
                     message.Res = Convert.ToUInt16(lvProcessList.SelectedItems[0].SubItems[1].Text.Trim());
-                    message.Type = SET_TARGET_OBJECT;
+                    message.Type = SELECT_TARGET_PROCESS;
 
-                    if(SendControlMessage(SET_TARGET_OBJECT, message))
+                    if (SendControlMessage(SELECT_TARGET_PROCESS, message))
                     {
                         // Parse the EPROCESS.
-                        //                        GetByteStreamFromKernel(GET_KERNEL_OBJECT, "_EPROCESS", 0);
-                        ////////////////    확인 완료..    코드 정리만 하고 깃헙에 올리자..
-
-
-                        tSelectedProcess.Text = "[" + lvProcessList.SelectedItems[0].SubItems[1].Text.Trim() + "] " + lvProcessList.SelectedItems[0].SubItems[0].Text;
-                        if (lvProcessList.SelectedItems[0].SubItems[2].Text.Contains(":::"))
-                            tSelectedProcess.Text += (" -" + lvProcessList.SelectedItems[0].SubItems[2].Text.Remove(0, 3));
-                        bSelect.Text = "Deselect";
-                        bSelect.BackColor = Color.LightCoral;
-                        lvProcessList.Visible = false;
-                        tSelectedProcess.Enabled = false;
+                        if (GetByteStreamFromKernel(GET_KERNEL_OBJECT_CONTENTS, "_EPROCESS", 0))
+                        {
+                            tSelectedProcess.Text = "[" + lvProcessList.SelectedItems[0].SubItems[1].Text.Trim() + "] " + lvProcessList.SelectedItems[0].SubItems[0].Text;
+                            if (lvProcessList.SelectedItems[0].SubItems[2].Text.Contains(":::"))
+                                tSelectedProcess.Text += (" -" + lvProcessList.SelectedItems[0].SubItems[2].Text.Remove(0, 3));
+                            bSelect.Text = "Deselect";
+                            bSelect.BackColor = Color.LightCoral;
+                            lvProcessList.Visible = false;
+                            tSelectedProcess.Enabled = false;
+                        }
+                        else
+                        {
+                            //MessageBox.Show("Failed to get _EPROCESS Data of \"" + message.uMessage + "\".\r\nTry it, later.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            message.Type = UNSELECT_TARGET_PROCESS;
+                            SendControlMessage(UNSELECT_TARGET_PROCESS, message);
+                        }
                     }
                     else
                     {
-                        MessageBox.Show("Failed to find this Process.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        if (message.Res == 0x89)
+                            MessageBox.Show("Failed to get offsets which are necessary for retrieving the target process' _EPROCESS.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        else
+                            MessageBox.Show("Failed to find this Process.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                 }
             }
             else
             {
+                ////////////////////////////////////////////////// UI 관련 리소스 정리해야 함.
+                B_MESSAGE_FORM message = new B_MESSAGE_FORM();
+                message.Type = UNSELECT_TARGET_PROCESS;
+                SendControlMessage(UNSELECT_TARGET_PROCESS, message);
+
+                dumpedByteStream = null;        /// 이거 전용 함수 만들어야함. 아래 포함.
+                receivedByteStreamLength = 0;
+                startAddressForThisStream = 0;
+
+                this.tabProcess.SelectedIndex = 0;
+                this.tvEprocess.Nodes.Clear();
+                
                 bSelect.Text = "Select";
                 bSelect.BackColor = SystemColors.Control;
                 lvProcessList.Visible = true;
@@ -478,39 +559,55 @@ namespace UIforMR
             }
         }
         
-        private bool GetByteStreamFromKernel(byte Type, string ObjectName, uint StartAddress, uint Size = 0)
+        private bool GetByteStreamFromKernel(ushort Type, string ObjectName, uint StartAddress, uint Size = 0)
         {
             bool result = false;
 
-            switch (Type){
-                case GET_BYTE_STREAM:
-                    if ((StartAddress != 0) && (Size != 0))
-                    {
-                        B_MESSAGE_FORM message = new B_MESSAGE_FORM();
-
-                        message.Address = StartAddress;
-                        message.Size = Size;
-                        message.Type = Type;
-
-                        result = SendControlMessage(Type, message);
-                    }
-                    break;
-                case GET_KERNEL_OBJECT:
-                    if (ObjectName != null)
-                    {
-                        U_MESSAGE_FORM message = new U_MESSAGE_FORM();
-                        message.Size = kernelObjects.GetObjectSize(ObjectName);
-                        if (message.Size != 0)
+            // 이거 플래그 하나 만들어야 할 듯...
+            if (dumpedByteStream == null)
+            {
+                switch (Type)
+                {
+                    case GET_BYTE_STREAM:
+                        if ((StartAddress != 0) && (Size != 0))
                         {
-                            message.uMessage = ObjectName;
+                            B_MESSAGE_FORM message = new B_MESSAGE_FORM();
+
+                            message.Address = StartAddress;
+                            message.Size = Size;
                             message.Type = Type;
 
+                            dumpedByteStream = new byte[message.Size];
                             result = SendControlMessage(Type, message);
                         }
-                    }
-                    break;
-                default:
-                    break;
+                        break;
+                    case GET_KERNEL_OBJECT_CONTENTS:
+                        if (ObjectName != null)
+                        {
+                            U_MESSAGE_FORM message = new U_MESSAGE_FORM();
+
+                            message.Size = kernelObjects.GetObjectSize(ObjectName);
+                            if (message.Size != 0)
+                            {
+                                message.uMessage = ObjectName;
+                                message.Type = Type;
+                               
+                                dumpedByteStream = new byte[message.Size];
+                                result = SendControlMessage(Type, message);
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+                }
+
+                // 이거 있긴 해야하는데, 하려면 스위치 플래그 하나 만들어야 함... 좀 더 생각해 볼 것.
+                //if (!result)
+                //    dumpedByteStream = null;
+            }
+            else
+            {
+                MessageBox.Show("The 'dumpedBytestream' Buffer is full.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
             return result;
@@ -639,6 +736,73 @@ namespace UIforMR
                 lvProcessList.EnsureVisible(item.Index);
             }
         }
+
+        private void addFileToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string fileName = null;
+
+            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                fileName = openFileDialog1.FileName;
+                if (fileName != null)
+                {
+                    Thread parsingThread = new Thread(() => KernelObjects.AddFileToParse(fileName));
+                    parsingThread.Start();   
+                }
+            }
+        }
+
+        private void showOBJECTToolStripMenuItem_DropDownOpening(object sender, EventArgs e)
+        {
+            cbShowObject.Items.Clear();
+            string[] tmp = KernelObjects.GetRegisteredObjectsList();
+            if (tmp != null)
+            {
+                cbShowObject.Size = new Size((int)(tmp[0].Length * 7.7), 31);
+                cbShowObject.Items.AddRange(tmp);
+            }
+            else
+            {
+                cbShowObject.Size = new Size(255, 31);
+                cbShowObject.Text = " None";
+            }
+        }
+
+        private void cbShowObject_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (cbShowObject.Text != null)
+            {
+                if ((cbShowObject.Text == "") || cbShowObject.Text.Contains("None"))
+                    return;
+                else
+                {
+                    int index = KernelObjects.IndexOfThisObject(KernelObjects.Registered, cbShowObject.Text.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).First().Trim());
+
+                    if (index != -1)
+                        KernelObjects.Registered[index].ShowFieldsInfo();
+                    else
+                    {
+                        MessageBox.Show("Selected object has been removed.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        cbShowObject.Text = "";
+                    }
+                }
+            }
+
+         //   cbShowObject.Text = "";
+
+        }
+
+        private void KeyLocker(object sender, KeyPressEventArgs e)
+        {
+           // e.Handled = true;
+        }
+
+        private void KeyLocker(object sender, KeyEventArgs e)
+        {
+            e.SuppressKeyPress = true;
+            //e.Handled = true;
+        }
+
     }
 
 
