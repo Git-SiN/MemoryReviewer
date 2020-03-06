@@ -90,7 +90,7 @@ namespace UIforMR
         public const byte RESPONSE_REQUIRED_OFFSET = 0x04;
         
         public const byte SELECT_TARGET_PROCESS = 0x10;
-        public const byte UNSELECT_TARGET_PROCESS = 0x11;
+        public const byte DESELECT_TARGET_PROCESS = 0x11;
 
         public const byte GET_BYTE_STREAM = 0x40;
         public const byte GET_KERNEL_OBJECT_CONTENTS = 0x41;
@@ -102,6 +102,8 @@ namespace UIforMR
 
         private Thread CommunicationThread;
         private Thread CancellingThread;
+        private delegate void AppendTreeNodeCallback(TreeView TreeName, TreeNode NewNode, TreeNodeCollection ParentNode);
+        //delegate void AppendListCallback(ListView targetList, string[] entry);
 
         private bool isDriverLoaded = false;
         private volatile bool isOwnTermination = false;
@@ -126,7 +128,7 @@ namespace UIforMR
         private sbyte alignedProcessList = 0;
         private uint startAddressForThisStream = 0;
         private uint receivedByteStreamLength = 0;
-        internal static byte[] dumpedByteStream = null;
+        internal byte[] dumpedByteStream = null;
 
         public MainForm()
         {
@@ -323,6 +325,36 @@ namespace UIforMR
             }
         }
 
+        private void AppendTree(TreeView TreeName, TreeNode NewNode, TreeNodeCollection ParentNode = null)
+        {
+            if (TreeName.InvokeRequired)
+            {
+                AppendTreeNodeCallback d = new AppendTreeNodeCallback(AppendTree);
+                this.Invoke(d, new object[] { TreeName, NewNode, ParentNode });
+            }
+            else
+            {
+                int index = 0;
+                if (ParentNode == null)  // First Node.
+                    index = TreeName.Nodes.Add(NewNode);
+                else
+                    index = ParentNode.Add(NewNode);
+            }
+        }
+
+        //private void AppendList(ListView targetList, string[] entry)
+        //{
+        //    if (targetList.InvokeRequired)
+        //    {
+        //        AppendListCallback d = new AppendListCallback(AppendList);
+        //        this.Invoke(d, new object[] { targetList, entry });     // 아무리 파라미터가 한 개라도, object[]로 감싸야 한다.
+        //    }
+        //    else
+        //    {
+        //        ListViewItem current = targetList.Items.Add(new ListViewItem(entry));
+
+        //    }
+        //}
         //////////////////////////////////////////////////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////////////////////
@@ -413,61 +445,107 @@ namespace UIforMR
             }
 
             if(message.Required.Offset == 0)
+            {
                 message.Res = 0xFFFF;       // Signal for Failure.
+                //MessageBox.Show("Failed to get offset required by Driver : " + Required.ObjectName + "!" + Required.FieldName);
+                Thread messageThread = new Thread(() => MessageBox.Show("Failed to get Offset that required by Driver : " + Required.ObjectName + "!" + Required.FieldName));
+                messageThread.Start();
+            }
 
             SendControlMessage(message.Type, message);
         }
 
+        private void InitializeCurrentDump()
+        {
+            if(dumpedByteStream != null)
+                dumpedByteStream = null;
+
+            receivedByteStreamLength = 0;
+            startAddressForThisStream = 0;
+        }
+
         private void ShowKernelObjectContents(B_MESSAGE_FORM message)
         {
-            // It's the first message for this byte Stream.
-            if (receivedByteStreamLength == 0)
-                startAddressForThisStream = message.Address;
-
-            receivedByteStreamLength += message.Size;
-            if ((message.Res == 0xFFFF) || (dumpedByteStream == null) || (receivedByteStreamLength > dumpedByteStream.Length))
+            if(dumpedByteStream != null)
             {
-                // ERROR.
-                MessageBox.Show(String.Format("Error occured while dumping at 0x{0:X8}.", message.Address), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // It's the first message for this dump.
+                if (receivedByteStreamLength == 0)
+                    startAddressForThisStream = message.Address;
 
-                dumpedByteStream = null;        // 이거 스위치용 플래그 필요함..
-                receivedByteStreamLength = 0;
-                startAddressForThisStream = 0;
-                return;
-            }
-
-
-            // Store the Received data.
-            uint currentStartIndex = message.Address - startAddressForThisStream;
-            for (uint i = 0; i < message.Size; i++)
-                dumpedByteStream[currentStartIndex + i] = message.bMessage[i];
-
-
-            // Received whole data.
-            if (receivedByteStreamLength == dumpedByteStream.Length)
-            {
-                TreeView currentTree = null;
-                int indexForKernelObjectInRegistered = -1;
-
-                switch (this.tabProcess.SelectedIndex)
+                // Error check.
+                if ((message.Res != 0) || (startAddressForThisStream + receivedByteStreamLength != message.Address) || (receivedByteStreamLength + message.Size > dumpedByteStream.Length))
                 {
-                    case 0:
-                        // _EPROCESS
-                        currentTree = this.tvEprocess;
-                        indexForKernelObjectInRegistered = KernelObjects.IndexOfThisObject(KernelObjects.Registered, "_EPROCESS");
-                        break;
-                    case 1:
-                        break;
-                    default:
-                        break;
+                    InitializeCurrentDump();    // 이거 에러 상황 전까지 받은 데이터는 그냥 출력하는 걸로 바꿀 수도...
+
+                    if (message.Res != 0x89)
+                        MessageBox.Show(String.Format("Error occured while dumping at 0x{0:X8}.", message.Address), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    // else -> Failed to get Offset.
+
+                    return;
                 }
 
-                if ((this.tvEprocess != null) && (indexForKernelObjectInRegistered != -1))
+                // Store the received data.
+                uint currentStartIndex = message.Address - startAddressForThisStream;
+                for (uint i = 0; i < message.Size; i++)
+                    dumpedByteStream[currentStartIndex + i] = message.bMessage[i];
+                receivedByteStreamLength += message.Size;
+
+                // Received whole data.
+                if (receivedByteStreamLength == dumpedByteStream.Length)
                 {
-                    // Parsing Start...
+                    TreeView currentTree = null;
+                    string currentObjectName = null;
+                    int indexForKernelObjectInRegistered = -1;
+
+                    switch (this.tabProcess.SelectedIndex)
+                    {
+                        case 0:
+                            // _EPROCESS
+                            currentTree = this.tvEprocess;
+                            currentObjectName = "_EPROCESS";
+                            break;
+                        case 1:
+                            break;
+                        default:
+                            break;
+                    }
+
+                    indexForKernelObjectInRegistered = KernelObjects.IndexOfThisObject(KernelObjects.Registered, currentObjectName);
+                    if ((currentTree != null) && (indexForKernelObjectInRegistered != -1))
+                    {
+                        // Parsing Start...
+                        List<string> parsed = KernelObjects.Registered[indexForKernelObjectInRegistered].ShowFieldsInfo(true);
+                        if((parsed != null) && (parsed.Count > 1))
+                        {
+                            AppendTree(currentTree, new TreeNode(parsed[0]));
+                            for (int i = 1; i < parsed.Count; i++)
+                            {
+                                string[] splitLine = parsed[i].Split(new char[] { '!' }, StringSplitOptions.RemoveEmptyEntries);
+                                AppendTree(currentTree, new TreeNode(splitLine[0]), currentTree.Nodes[0].Nodes);
+                                if (splitLine.Length > 1)
+                                {
+                                    for (int j = 1; j < splitLine.Length; j++)
+                                        AppendTree(currentTree, new TreeNode(splitLine[j]), currentTree.Nodes[0].LastNode.Nodes);
+                                }
+                            }
+                        }
+
+
+                        // For Test...
+                        //AppendTree(currentTree, new TreeNode(currentObjectName));
+                        //AppendTree(currentTree, new TreeNode(String.Format("0x{0:X2}{1:X2}{2:X2}{3:X2}", dumpedByteStream[3], dumpedByteStream[2], dumpedByteStream[1], dumpedByteStream[0])), currentTree.Nodes[0].Nodes);
+                        //AppendTree(currentTree, new TreeNode(String.Format("0x{0:X2}{1:X2}{2:X2}{3:X2}", dumpedByteStream[7], dumpedByteStream[6], dumpedByteStream[5], dumpedByteStream[4])), currentTree.Nodes[0].Nodes);
+                    }
                 }
+
             }
-            
+            else
+            {
+                // 위에 에러날 상황과 연계해서 생각해봐야 함. 에러나기 전까지 받은 것들 출력할지 말지.
+                MessageBox.Show("The 'dumpedByteStream' Buffer does not exist.\r\nTHIS MESSAGE IS FOR TEST.", "Error");
+                InitializeCurrentDump();
+            }
+
         }
 
         private void SendControlMessageThread(U_MESSAGE_FORM message)
@@ -502,7 +580,7 @@ namespace UIforMR
                 {
                     U_MESSAGE_FORM message = new U_MESSAGE_FORM();
                     message.uMessage = lvProcessList.SelectedItems[0].SubItems[0].Text.Trim();
-                    message.Res = Convert.ToUInt16(lvProcessList.SelectedItems[0].SubItems[1].Text.Trim());
+                    message.Res = Convert.ToUInt16(lvProcessList.SelectedItems[0].SubItems[1].Text.Trim()); // 커널에는 PID가 4바이트로 저장됨 -> 바꾸던지 생각해 볼 것.
                     message.Type = SELECT_TARGET_PROCESS;
 
                     if (SendControlMessage(SELECT_TARGET_PROCESS, message))
@@ -521,16 +599,18 @@ namespace UIforMR
                         else
                         {
                             //MessageBox.Show("Failed to get _EPROCESS Data of \"" + message.uMessage + "\".\r\nTry it, later.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            message.Type = UNSELECT_TARGET_PROCESS;
-                            SendControlMessage(UNSELECT_TARGET_PROCESS, message);
+                            message.Type = DESELECT_TARGET_PROCESS;
+                            SendControlMessage(DESELECT_TARGET_PROCESS, message);
                         }
                     }
                     else
                     {
-                        if (message.Res == 0x89)
-                            MessageBox.Show("Failed to get offsets which are necessary for retrieving the target process' _EPROCESS.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        else
+                        if (message.Res != 0x89)
                             MessageBox.Show("Failed to find this Process.", "Failed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        // else -> Failed to Get Offsets.
+                        /////////////////////////////////////////////////////
+                        /////// 이거 메시지가 너무 늦게 뜬다..... 각자 하는 걸로 변경할 것. 
+                        //      드라이버에서 TEST 값이 0으로 뜸. 
                     }
                 }
             }
@@ -538,15 +618,13 @@ namespace UIforMR
             {
                 ////////////////////////////////////////////////// UI 관련 리소스 정리해야 함.
                 B_MESSAGE_FORM message = new B_MESSAGE_FORM();
-                message.Type = UNSELECT_TARGET_PROCESS;
-                SendControlMessage(UNSELECT_TARGET_PROCESS, message);
+                message.Type = DESELECT_TARGET_PROCESS;
+                SendControlMessage(DESELECT_TARGET_PROCESS, message);
 
-                dumpedByteStream = null;        /// 이거 전용 함수 만들어야함. 아래 포함.
-                receivedByteStreamLength = 0;
-                startAddressForThisStream = 0;
+                InitializeCurrentDump();
 
                 this.tabProcess.SelectedIndex = 0;
-                this.tvEprocess.Nodes.Clear();
+                this.tvEprocess.Nodes.Clear();      ///////////////////////// 이거 모든 트리 클리어로 바꿔야 함.
                 
                 bSelect.Text = "Select";
                 bSelect.BackColor = SystemColors.Control;
@@ -601,13 +679,13 @@ namespace UIforMR
                         break;
                 }
 
-                // 이거 있긴 해야하는데, 하려면 스위치 플래그 하나 만들어야 함... 좀 더 생각해 볼 것.
+                // This result is only need for UI. The Buffer will be initialized by Communication thread.
                 //if (!result)
-                //    dumpedByteStream = null;
+                //    InitializeCurrentDump();
             }
             else
             {
-                MessageBox.Show("The 'dumpedBytestream' Buffer is full.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("The last 'dumpedBytestream' Buffer still remains.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
             return result;
@@ -740,7 +818,7 @@ namespace UIforMR
         private void addFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
             string fileName = null;
-
+            
             if (openFileDialog1.ShowDialog() == DialogResult.OK)
             {
                 fileName = openFileDialog1.FileName;

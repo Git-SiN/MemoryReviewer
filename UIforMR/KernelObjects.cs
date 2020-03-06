@@ -408,7 +408,7 @@ namespace UIforMR
                                 }
                             }
 
-                            // Mark the size at 'this.fieldType'.
+                            // Mark size at the 'this.fieldType'.
                             if((this.fieldType & 0xFFF) == 0)
                             {
                                 if (calculatedSize < 0x1000)
@@ -497,10 +497,171 @@ namespace UIforMR
                 System.Windows.Forms.MessageBox.Show(String.Format("+0x{0:X3} {1,-17}: {2}", Offset, Name, Description), "Field Info", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
             }
 
-            public string ToString(uint maxLengthOfName, uint maxLengthOfDesc, ushort depth = 0)
+            public string DataParsing(byte[] DataDump)
+            {
+                string parsed = "";
+                uint fieldSize = this.IntermediateProcessing(2, 0);
+                bool isArray = ((this.fieldType >> 28) & 1) == 1 ? true : false;
+                uint arrayCount = 0;
+
+                // ERROR.
+                if (fieldSize == 0xFFFFFFFF)
+                    return this.Description + " - UNKNOWN SIZE.";
+                else if (this.Offset + fieldSize > (uint)DataDump.Length)
+                    return this.Description + " - TRUNCATED DUMP.";
+
+
+                ///////////////////////////////////////////////////////////////////////////////////////////////
+                //////////////////////                  PARSING START                    //////////////////////
+                ///////////////////////////////////////////////////////////////////////////////////////////////               
+                // BIT Type.
+                if ((this.fieldType & ((uint)0x2 << 28)) != 0)
+                {
+                    switch (DataDump.Length - this.Offset)
+                    {
+                        case 1:
+                            fieldSize = DataDump[this.Offset];
+                            break;
+                        case 2:
+                            fieldSize = BitConverter.ToUInt16(DataDump, (int)this.Offset);
+                            break;
+                        case 3:
+                            fieldSize = DataDump.Last();
+                            fieldSize = fieldSize << 16;
+                            fieldSize += BitConverter.ToUInt16(DataDump, (int)this.Offset);
+                            break;
+                        default:
+                            fieldSize = BitConverter.ToUInt32(DataDump, (int)this.Offset);
+                            break;
+                    }
+
+                    parsed = this.GetBitPositionOrValue(fieldSize).ToString();      // 이 함수 제대로 동작하는지 확인해야 함.
+                }
+                else
+                {
+                    // ARRAY.
+                    if (isArray)
+                    {
+                        arrayCount = (this.FieldType >> 12) & 0xFFF;
+                        if (arrayCount == 0xFFF)
+                            arrayCount = Convert.ToUInt32(this.Description.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries).First());
+                        //fieldSize /= arrayCount;
+                        //parsed = String.Format("[{0}] ", arrayCount);
+                    }
+
+                    // DESCRIPTION.
+                    switch ((this.fieldType >> 24) & 7)
+                    {
+                        case 0:
+                            // Default Data Type
+                            // calculatedSize = this.fieldType & 0xF;
+                            break;
+                        case 1:
+                            // 이거 클릭하면 서브노드에 헥사로 한 바이트씩 띄우자.
+                            // PADDING FIELD
+                            //parsed = this.Description;
+                            //parsed = "!";   // To SubNode.
+                            for (int i = 0; i < fieldSize; i++)
+                                parsed += String.Format("{0:X2} ", DataDump[this.Offset + i]);
+                            break;
+                        case 2:
+                            // <unnamed-tag>
+                            parsed = this.Description;
+                            break;
+
+                        // 아래는 모두 서브노드 열릴 때 오브젝트 받는 걸로...
+                        //case 4:
+                        //    // UNICODE_STRING & ANSI_STRING
+                        //   // calculatedSize = 8;
+                        //    break;
+                        //case 5:
+                        //    // LARGE_INTEGER & ULARGE_INTEGER
+                        //    //calculatedSize = 8;
+                        //    break;
+                        //case 6:
+                        //    // LIST_ENTRY
+                        //    //calculatedSize = 8;
+                        //    //if ((this.FieldType & 1) == 1)     // SINGLE_LIST_ENTRY
+                        //    //    calculatedSize = calculatedSize >> 1;
+                        //    break;
+                        //case 7:
+                        //    // Another OBJECT
+                        default:
+                            break;
+                    }
+
+
+
+                    ////////////
+                    if ((this.fieldType & (8 << 24)) != 0)
+                    {
+                        // 포인터는 노드에 Key 정해서 넣고, 해당 노드 클릭 시 새로 덤프 받아와서 여는 걸로..
+                        //  -> 무린가??    -> 옆에 탭에 SubObjects로 해서 거기서 계속 바뀌는걸로..
+                        // 1. POINTER :
+                        parsed = "0x";
+
+                        // Ptr64
+                        if (((this.fieldType >> 24) & 7) == 3)
+                            parsed += String.Format("{0:X8}`", BitConverter.ToUInt32(DataDump, (int)this.Offset + 4));
+
+                        parsed += String.Format("{0:X8}", BitConverter.ToUInt32(DataDump, (int)this.Offset));
+                    }
+                    else
+                    {
+                        ////////////////////////// 일단 동작은 됌. 아래는 0번부터 만들어야 함.
+                        // 위에꺼는 WinDBG에 출력되는 순서 좀 보고 양식만 좀바꾸자.
+                        // 2. DATA TYPE :
+                        switch ((this.fieldType >> 24) & 7)
+                        {
+                            case 0:
+                                // Default Data Type
+                                // calculatedSize = this.fieldType & 0xF;
+                                break;
+                            case 1:
+                                // 이거 클릭하면 서브노드에 헥사로 한 바이트씩 띄우자.
+                                // PADDING FIELD
+                                //parsed = this.Description;
+                                // 서브 노드 만드는 거는, '!' 를 기준으로 짤라보자.
+                                parsed = "!";
+                                for (int i = 0; i < fieldSize; i++)
+                                    parsed += String.Format("{0:X2}  ", DataDump[this.Offset + i]);
+                                break;
+                            case 2:
+                                // <unnamed-tag>
+                                //parsed = this.Description;
+                                break;
+
+                            // 아래는 모두 서브노드 열릴 때 오브젝트 받는 걸로...
+                            //case 4:
+                            //    // UNICODE_STRING & ANSI_STRING
+                            //   // calculatedSize = 8;
+                            //    break;
+                            //case 5:
+                            //    // LARGE_INTEGER & ULARGE_INTEGER
+                            //    //calculatedSize = 8;
+                            //    break;
+                            //case 6:
+                            //    // LIST_ENTRY
+                            //    //calculatedSize = 8;
+                            //    //if ((this.FieldType & 1) == 1)     // SINGLE_LIST_ENTRY
+                            //    //    calculatedSize = calculatedSize >> 1;
+                            //    break;
+                            //case 7:
+                            //    // Another OBJECT
+                            default:
+                                break;
+                        }
+                    }
+                }
+                
+
+
+                return parsed;
+            }
+
+            public string ToString(uint maxLengthOfName, uint maxLengthOfDesc, ushort depth, bool isDataParsing = false)
             {
                 string tmp = "";
-                string size;
                 string format;
 
                 if (maxLengthOfDesc == 0)
@@ -523,9 +684,21 @@ namespace UIforMR
                     tmp += "  +";
 
                 tmp += String.Format("0x{0:X3} {1}", this.Offset, this.Name);
-                size = (IntermediateProcessing(2, 0) == 0xFFFFFFFF) ? "  -  " : String.Format("0x{0:X3}", IntermediateProcessing(2, 0));
-                format = "{0,-" + maxLengthOfName + "} : {1,-" + maxLengthOfDesc + "}\t({2})";
-                return String.Format(format, tmp, this.Description, size);
+
+                //string size;
+                //size = (IntermediateProcessing(2, 0) == 0xFFFFFFFF) ? "  -  " : String.Format("0x{0:X3}", IntermediateProcessing(2, 0));
+                //format = "{0,-" + maxLengthOfName + "} : {1,-" + maxLengthOfDesc + "}\t({2})";
+                //return String.Format(format, tmp, this.Description, size);
+                if (isDataParsing)
+                {
+                    format = "{0,-" + maxLengthOfName + "} : {1,-" + maxLengthOfDesc + "}\t\t{2}";
+                    return String.Format(format, tmp, this.Description, this.DataParsing(mainForm.dumpedByteStream));
+                }
+                else
+                {
+                    format = "{0,-" + maxLengthOfName + "} : {1,-" + maxLengthOfDesc + "}\t({2})";
+                    return String.Format(format, tmp, this.Description, (IntermediateProcessing(2, 0) == 0xFFFFFFFF) ? "  -  " : String.Format("0x{0:X3}", IntermediateProcessing(2, 0)));
+                }
             }
         }
 
@@ -1106,13 +1279,13 @@ namespace UIforMR
                 }
             }
 
-            private void FieldsInfoMaker(KERNEL_OBJECT currentObject, List<string> fieldsInfo, ushort MaxLengthOfName, ushort MaxLengthOfDesc, ushort depth)
+            private void FieldsInfoMaker(KERNEL_OBJECT currentObject, List<string> fieldsInfo, ushort MaxLengthOfName, ushort MaxLengthOfDesc, ushort depth, bool isDataParsing = false)
             {
                 if(currentObject.Fields != null)
                 {
                     foreach (KOBJECT_FIELD currentField in currentObject.Fields)
                     {
-                        fieldsInfo.Add(currentField.ToString(MaxLengthOfName, MaxLengthOfDesc, depth));
+                        fieldsInfo.Add(currentField.ToString(MaxLengthOfName, MaxLengthOfDesc, depth, isDataParsing));
 
                         // If the FIeld is the 'Unnamed Object' Type, Show them together. 
                         if (((currentField.FieldType >> 23) & 0xF) == 5)
@@ -1120,14 +1293,14 @@ namespace UIforMR
                             if (currentObject.UnnamedObjects != null)
                             {
                                 if ((IndexOfThisObject(currentObject.UnnamedObjects, currentField.Name)) != -1)
-                                    FieldsInfoMaker(currentObject.UnnamedObjects[IndexOfThisObject(currentObject.UnnamedObjects, currentField.Name)], fieldsInfo, MaxLengthOfName, MaxLengthOfDesc, (ushort)((currentField.FieldType >> 31) + depth + 2));
+                                    FieldsInfoMaker(currentObject.UnnamedObjects[IndexOfThisObject(currentObject.UnnamedObjects, currentField.Name)], fieldsInfo, MaxLengthOfName, MaxLengthOfDesc, (ushort)((currentField.FieldType >> 31) + depth + 2), isDataParsing);
                             }
                         }
                     }
                 }
             }
 
-            internal void ShowFieldsInfo()
+            internal List<string> ShowFieldsInfo(bool isDataParsing = false)
             {
                 ushort MaxLengthOfName = 0;
                 ushort MaxLengthOfDesc = 0;
@@ -1141,16 +1314,23 @@ namespace UIforMR
                     MaxLengthOfName += 10;
 
                     fieldsInfo.Add(this.Name);
-                    FieldsInfoMaker(this, fieldsInfo, MaxLengthOfName, MaxLengthOfDesc, 0);
+                    FieldsInfoMaker(this, fieldsInfo, MaxLengthOfName, MaxLengthOfDesc, 0, isDataParsing);
 
-                    DebuggingForm debuggingForm = null;
-                    if ((this.Size > 0) && (this.Size < 0xFFFFFFFF))
-                        debuggingForm = new DebuggingForm(String.Format("OBJECT Info : {0} - 0x{1:X}({2})", this.Name, this.Size, this.Size), fieldsInfo.ToArray(), System.Windows.Forms.MessageBoxButtons.OK);
-                    else
-                        debuggingForm = new DebuggingForm(String.Format("OBJECT Info : {0} - UNKNOWN SIZE", this.Name), fieldsInfo.ToArray(), System.Windows.Forms.MessageBoxButtons.OK);
+                    if (!isDataParsing)
+                    {
+                        DebuggingForm debuggingForm = null;
+                        if ((this.Size > 0) && (this.Size < 0xFFFFFFFF))
+                            debuggingForm = new DebuggingForm(String.Format("OBJECT Info : {0} - 0x{1:X}({2})", this.Name, this.Size, this.Size), fieldsInfo.ToArray(), System.Windows.Forms.MessageBoxButtons.OK);
+                        else
+                            debuggingForm = new DebuggingForm(String.Format("OBJECT Info : {0} - UNKNOWN SIZE", this.Name), fieldsInfo.ToArray(), System.Windows.Forms.MessageBoxButtons.OK);
 
-                    debuggingForm.ShowDialog();
+                        debuggingForm.ShowDialog();
+                        fieldsInfo.Clear();
+                        fieldsInfo = null;
+                    }
                 }
+
+                return fieldsInfo;
             }
 
             internal bool OverwriteTheObjectSize(uint calculatedSize)
@@ -1192,7 +1372,7 @@ namespace UIforMR
                     maxLengthOfName += 10;
 
                     for (int i = 0; i < this.Fields.Count; i++)
-                        context.Add(this.Fields[i].ToString(maxLengthOfName, maxLengthOfDesc));
+                        context.Add(this.Fields[i].ToString(maxLengthOfName, maxLengthOfDesc, 0));
 
                     DebuggingForm debuggingForm = new DebuggingForm("Size Check for " + this.Name, context.ToArray(), System.Windows.Forms.MessageBoxButtons.YesNo, "Do you want to OVERWRITE it?");
                     if (debuggingForm.ShowDialog() == System.Windows.Forms.DialogResult.Yes)
@@ -1238,7 +1418,7 @@ namespace UIforMR
         ////////////////////          START POINT         ////////////////////
         //////////////////////////////////////////////////////////////////////
         internal volatile static List<KERNEL_OBJECT> Registered = null;
-        internal MainForm form = null;
+        internal static MainForm mainForm = null;
         //private Thread ParsingThread = null;
         internal static System.Drawing.Point debuggingFormLocation = System.Drawing.Point.Empty;    // Store the Last Location of Debugging Form.
         
@@ -1249,7 +1429,7 @@ namespace UIforMR
 
         public KernelObjects(MainForm f)
         {
-            form = f;
+            mainForm = f;
 
             Registered = new List<KERNEL_OBJECT>();
             Registered.Clear();
@@ -1797,7 +1977,11 @@ namespace UIforMR
             }
 
             return null;
-        } 
+        }
+
+
+        
+
 
         //////////////////////////////////////////////////////////////////
     }

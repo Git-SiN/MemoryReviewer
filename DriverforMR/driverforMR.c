@@ -4,6 +4,19 @@
 #include <stdio.h>
 
 #pragma pack(1)
+
+typedef struct _SEGMENT_DESCRIPTOR_TABLE {
+	USHORT Limit;
+	ULONG Base;
+}SEGMENT_DESCRIPTOR_TABLE, *PSEGMENT_DESCRIPTOR_TABLE;
+
+typedef struct _SEGMENT_DESCRIPTOR_INFO{
+	ULONG Base;
+	ULONG Limit;
+	UCHAR AccessByte;
+	UCHAR Flags;
+}SEGMENT_DESCRIPTOR_INFO, *PSEGMENT_DESCRIPTOR_INFO;
+
 typedef struct _HISTORY_OBJECT {
 	LIST_ENTRY ListEntry;
 	ULONG StartAddress;
@@ -11,12 +24,13 @@ typedef struct _HISTORY_OBJECT {
 	PVOID Buffer;
 }HISTORY_OBJECT, *PHISTORY_OBJECT;
 
-typedef struct _SNIFF_OBJECT {
-	ULONG backedEthread;
-	ULONG backedEprocess;
-	ULONG backedCR3;
-	ULONG backedHyperPte;
-}SNIFF_OBJECT, *PSNIFF_OBJECT;
+typedef struct _BACKUP_OBJECT {
+	ULONG OriginalEthread;
+	ULONG OriginalEprocess;
+	ULONG OriginalCR3;
+	ULONG OriginalHyperPte;
+	PSEGMENT_DESCRIPTOR_INFO pSegmentInfoForFS;	// It's for the Current Processor's KPCR[Processor Control Region].
+}BACKUP_OBJECT, *PBACKUP_OBJECT;
 
 typedef struct _REQUIRED_OFFSET_ENTRY {
 	LIST_ENTRY ListEntry;
@@ -41,7 +55,7 @@ typedef struct _DEVICE_EXTENSION {
 	KEVENT PendingIRPEvent;
 	BOOLEAN bTerminate;
 	PTARGET_PROCESS pTargetProcess;
-	PSNIFF_OBJECT pSniffObject;
+	PBACKUP_OBJECT pBackupObject;
 	LIST_ENTRY RequiredOffsetCache;
 	KEVENT RequiredOffsetEvent;
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
@@ -92,188 +106,305 @@ PDEVICE_OBJECT pMyDevice = NULL;
 BOOLEAN isStartedUserCommunicationThread = FALSE;
 
 
+////////////////////////// 세그먼트 셀렉터 다루는 함수 만들어야 함.
+//		-> LDT가 좀 이상함.. 하나하나 값 확인해볼 것.
+/*
+LDT 필드 갖고 있는 오브젝트들:
+	_KPROCESS
+		+0x01c LdtDescriptor    : _KGDTENTRY	[8]
+			+0x000 LimitLow         : Uint2B
+			+0x002 BaseLow          : Uint2B
+			+0x004 HighWord         : <unnamed-tag>
+
+	_EPROCESS
+		+0x144 LdtInformation   : Ptr32 Void 	[4]
+
+	_KPCR
+		+0x000 NtTib            : _NT_TIB
+		+0x020 Prcb             : Ptr32 _KPRCB
+		+0x038 IDT              : Ptr32 _KIDTENTRY
+			+0x000 Offset           : Uint2B
+			+0x002 Selector         : Uint2B
+			+0x004 Access           : Uint2B
+			+0x006 ExtendedOffset   : Uint2B
+		+0x03c GDT              : Ptr32 _KGDTENTRY
+			+0x000 LimitLow         : Uint2B
+			+0x002 BaseLow          : Uint2B
+			+0x004 HighWord         : <unnamed-tag>
+				+0x000 Bytes            : <unnamed-tag>
+				+0x000 Bits             : <unnamed-tag>
+		+0x040 TSS              : Ptr32 _KTSS
+			+0x060 LDT              : Uint2B
+*/
+
+
+PSEGMENT_DESCRIPTOR_INFO SegmentDescriptorParser(USHORT SegmentSelector) {
+	SEGMENT_DESCRIPTOR_TABLE gdtr;		// LDT 구조 확인 후에도 Limit 값 쓸 일 없으면, 이 구조체 제거 후 pCurrentEntry로 사용.
+	PSEGMENT_DESCRIPTOR_INFO pSegmentInfo = NULL;
+	PULONG pCurrentEntry = NULL;
+	BOOLEAN isLocalDescriptorTable = (SegmentSelector & 0x4) ? TRUE : FALSE;		
+	UCHAR dbgPrefix[] = "::: IN SEGMENT DESCRIPTOR PARSER : ";
+
+	SegmentSelector = SegmentSelector >> 3;
+	if (SegmentSelector) {
+		RtlZeroMemory(&gdtr, sizeof(SEGMENT_DESCRIPTOR_TABLE));
+		__asm sgdt gdtr;
+		if (gdtr.Base && gdtr.Limit) {
+			pSegmentInfo = ExAllocatePool(NonPagedPool, sizeof(SEGMENT_DESCRIPTOR_INFO));
+			if (pSegmentInfo) {
+			LDTPARSING:
+				RtlZeroMemory(pSegmentInfo, sizeof(SEGMENT_DESCRIPTOR_INFO));
+				pCurrentEntry = (PULONG)(gdtr.Base + (8 * SegmentSelector));
+
+				// Parsing...
+				pSegmentInfo->Limit = (pCurrentEntry[0] & 0xFFFF);
+				pSegmentInfo->Limit += ((pCurrentEntry[1]) & 0xF0000);
+
+				pSegmentInfo->Base = ((pCurrentEntry[0] >> 16) & 0xFFFF);
+				pSegmentInfo->Base += (((pCurrentEntry[1]) & 0xFF) << 16);
+				pSegmentInfo->Base += ((pCurrentEntry[1]) & 0xFF000000);
+
+				pSegmentInfo->AccessByte = (UCHAR)((pCurrentEntry[1] >> 8) & 0xFF);
+				pSegmentInfo->Flags = (UCHAR)((pCurrentEntry[1] >> 20) & 0xF);
+
+				if (isLocalDescriptorTable) {
+					DbgPrintEx(101, 0, "%sLLLLLLLL DDDDDDDD TTTTTTTT <- Have To Test This ENTRY!!!!");
+
+					// SLDT하면 LDT 내에서의 셀렉터 값[16 Bits]이 나오는 듯.	-> 실제 값 테스트 필요.
+					gdtr.Base = pSegmentInfo->Base;
+					gdtr.Limit = pSegmentInfo->Limit;
+
+					__asm sldt SegmentSelector;						// 이거 16비트 넣어도 되는지 한 번 더 확인해 보고, do while 문으로 돌리자.    
+					SegmentSelector = SegmentSelector >> 3;	// 나중에 LDT 실제 값 확인할 때, 3 Bit에 GDT/LDT 값도 체크해보자.
+					isLocalDescriptorTable = FALSE;
+					
+					goto LDTPARSING;
+				}
+
+				// Succeeded to Parse.
+				DbgPrintEx(101, 0, "%s[BASE]0x%08X  [LIMIT] 0x%08X  [ACCESS BYTE] 0x%02X  [FLAGS] 0x%01X.", dbgPrefix, pSegmentInfo->Base, pSegmentInfo->Limit, pSegmentInfo->AccessByte, pSegmentInfo->Flags);
+			}
+			else
+				DbgPrintEx(101, 0, "%sFailed to Allocate Pool.", dbgPrefix);
+		}
+		else
+			DbgPrintEx(101, 0, "%sFailed to get the information of GDTR.", dbgPrefix);
+	}
+	else
+		DbgPrintEx(101, 0, "%sThis Selector points to the NULL Entry.", dbgPrefix);
+
+	return pSegmentInfo;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
 /////////  메모리 덤핑 이제 들어간다...	-> 루틴 완료할 때마다 위에 함수 선언해야 함.
-// SNIFF_OBJECT 이름 바꿀 것.
-// InitializeTargetProcess() 내부에서 해당 EPROCESS의 Reference count하나 올려서 락 걸자. 
-//		-> RemoveTargetProcess() 에서 내리는 걸로...
-
 NTSTATUS ManipulateAddressTables(PDEVICE_EXTENSION pExtension) {
 	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
-	ULONG backedCR3 = 0;
-	ULONG backedEprocess = 0;
-	ULONG backedEthread = 0;
+	ULONG tmp = 0;	// It's for the FS & CR3 Values.
 	UCHAR dbgPrefix[] = "::: IN MANIPULATE ADDRESS TABLES : ";
 
 
-	// Check the necessary offsets.
-	LONG of_Kprocess = GetRequiredOffsets(L"_KTHREAD", L"KPROCESS");
+	// Get necessary offsets.
+	LONG of_Kprocess = GetRequiredOffsets(L"_KTHREAD", L"Process");
 	LONG of_ImageFileName = GetRequiredOffsets(L"_EPROCESS", L"ImageFileName");
 	LONG of_DirectoryTableBase = GetRequiredOffsets(L"_KPROCESS", L"DirectoryTableBase");
+	LONG of_PrcbData = GetRequiredOffsets(L"_KPCR", L"PrcbData");
+	LONG of_CurrentThread = GetRequiredOffsets(L"_KPRCB", L"CurrentThread");
 
-	if ((of_Kprocess == -1) || (of_ImageFileName == -1) || (of_DirectoryTableBase == -1)) {
-		DbgPrintEx(101, 0, "%sFailed to get the necessary offsets...", dbgPrefix);
+	if ((of_Kprocess == -1) || (of_ImageFileName == -1) || (of_DirectoryTableBase == -1) || (of_PrcbData == -1) || (of_CurrentThread == -1)) {
+		DbgPrintEx(101, 0, "%sFailed to get necessary offsets.", dbgPrefix);
 		return STATUS_RESOURCE_DATA_NOT_FOUND;
 	}
 
-	// Just Remove, Create new one.
-	if (pExtension->pSniffObject) {
-		DbgPrintEx(101, 0, "%sRemove the last SNIFF_OBJECT.", dbgPrefix);
-		ExFreePool(pExtension->pSniffObject);
-		pExtension->pSniffObject = NULL;
-	}
 
-	pExtension->pSniffObject = ExAllocatePool(NonPagedPool, sizeof(SNIFF_OBJECT));
-	if (pExtension->pSniffObject == NULL) {
-		DbgPrintEx(101, 0, "%sFailed to Allocate new SNIFF_OBJECT",dbgPrefix);
-		return ntStatus;
+	// Always, Remove the last one.
+	if (pExtension->pBackupObject){
+		if (pExtension->pBackupObject->pSegmentInfoForFS)
+			ExFreePool(pExtension->pBackupObject->pSegmentInfoForFS);
 	}
-	RtlZeroMemory(pExtension->pSniffObject, sizeof(SNIFF_OBJECT));
+	else {
+		pExtension->pBackupObject = ExAllocatePool(NonPagedPool, sizeof(BACKUP_OBJECT));
+		if (!pExtension->pBackupObject) {
+			DbgPrintEx(101, 0, "%sFailed to Allocate the BACKUP_OBJECT", dbgPrefix);
+			return ntStatus;
+		}
+	}
+	RtlZeroMemory(pExtension->pBackupObject, sizeof(BACKUP_OBJECT));
 
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////////			Backup			////////////////////////
 	////////////////////////////////////////////////////////////////////////////
 	__try {
+		// Parse the FS Selector to get the current Processor's KPCR Address.
+		__asm {
+			push fs;
+			pop tmp;
+		}
+		pExtension->pBackupObject->pSegmentInfoForFS = SegmentDescriptorParser((USHORT)tmp);
+		tmp = 0;
+
+		// Backup the CR3.
 		__asm {
 			push eax;
-
-			// Backup the current ETHREAD.
-			mov eax, fs:0x124;
-			mov backedEthread, eax;
-
-			// Backup the current thread's KPROCESS.
-			add eax, of_Kprocess;
-			mov eax, [eax];
-			mov backedEprocess, eax;
-
-			// Backup the register CR3.
 			mov eax, cr3;
-			mov backedCR3, eax;
-
+			mov tmp, eax;
 			pop eax;
 		}
+		pExtension->pBackupObject->OriginalCR3 = tmp;
 
-		// For preventing the target process from termination. 
-		//		-> If failed, regard as already terminated.
-		ntStatus = ObReferenceObjectByPointer((PVOID)backedEprocess, GENERIC_ALL, NULL, KernelMode);
-		if (!NT_SUCCESS(ntStatus)) {
-			ExFreePool(pExtension->pSniffObject);
-			DbgPrintEx(101, 0, "[ERROR] Failed to increase the current Process' reference count.\n");
-			DbgPrintEx(101, 0, "    -> Maybe the process had terminated...\n");
-			return ntStatus;
+		if (pExtension->pBackupObject->pSegmentInfoForFS && tmp) {
+			// Backup the current ETHREAD.
+			pExtension->pBackupObject->OriginalEthread = *(PULONG)(pExtension->pBackupObject->pSegmentInfoForFS->Base + of_PrcbData + of_CurrentThread);
+			
+			// Backup the current thread's KPROCESS.
+			pExtension->pBackupObject->OriginalEprocess = *(PULONG)(pExtension->pBackupObject->OriginalEthread + of_Kprocess);
+
+			// For Test...
+	/*		DbgPrintEx(101, 0, "%sTHREAD : 0x%08X     BACKED _EPROCESS :0x%08X    CR3 : 0x%08X", dbgPrefix, pExtension->pBackupObject->OriginalEthread, pExtension->pBackupObject->OriginalEprocess, pExtension->pBackupObject->OriginalCR3);
+			DbgPrintEx(101, 0, "   ::: Original Process : %s\n", (PUCHAR)((pExtension->pBackupObject->OriginalEprocess) + of_ImageFileName));
+			DbgPrintEx(101, 0, "       -> Manipulated to : %s\n", (PUCHAR)((ULONG)(pExtension->pTargetProcess->pEprocess) + of_ImageFileName));
+
+			ExFreePool(pExtension->pBackupObject->pSegmentInfoForFS);
+			ExFreePool(pExtension->pBackupObject);
+			return STATUS_UNSUCCESSFUL;*/
+
+
+			// To prevent the Object of the target process from being deleted.
+			//		-> Have to Dereference the Object as soon as posible.
+			//		-> If it fails, The process is considered to have already terminated.
+			//		이거 해제할 때 가끔 블루스크린 뜸-> 좀 놔둬서 왜 뜨는지 확인해보고, 이후에 try로...
+			// 이거 Original process를 올렸네... 일단 타겟으로 해두고, 리스토어 만든 후 체크.
+			ntStatus = ObReferenceObjectByPointer((PVOID)(pExtension->pTargetProcess->pEprocess), GENERIC_ALL, NULL, KernelMode);		// 이거 원래 프로세스만 락했네
+			if (!NT_SUCCESS(ntStatus)) {
+				DbgPrintEx(101, 0, "%sFailed to increase the Reference count of the current Process' EPROCESS.", dbgPrefix);
+				DbgPrintEx(101, 0, "    -> Maybe the process has already terminated.");
+			}
+
+			// Succeeded to BACKUP.
+			//ntStatus = STATUS_SUCCESS;
 		}
-
-		pExtension->pSniffObject->backedEprocess = backedEprocess;
-		pExtension->pSniffObject->backedCR3 = backedCR3;
-		pExtension->pSniffObject->backedEthread = backedEthread;
-
-
-		////////////////////////////////////////////////////////////////////////////
-		////////////////////////		Manipulation		////////////////////////
-		////////////////////////////////////////////////////////////////////////////
-
-		// Change the current thread's KPROCESS.
-		*(PULONG)((pExtension->pSniffObject->backedEthread) + of_Kprocess) = pExtension->pTargetProcess->pEprocess;
-
-
-		// Manipulate the register CR3.
-		backedCR3 = *(PULONG)((ULONG)(pExtension->pTargetProcess->pEprocess) + of_DirectoryTableBase);
-		//	-> Note it!!! NOT "EPROC_OFFSET_PageDirectoryPte"
-
-		__asm {
-			push eax;
-
-			mov eax, backedCR3;
-			mov cr3, eax;
-
-			pop eax;
-		}
-
+		//else {
+		//	ExFreePool(pExtension->pBackupObject);
+		//	pExtension->pBackupObject = NULL;
+		//}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
-		DbgPrintEx(101, 0, "[ERROR] Failed to backup & manipulate the tables...\n");
-
-		ExFreePool(pExtension->pSniffObject);
-		pExtension->pSniffObject = NULL;
-		return STATUS_UNSUCCESSFUL;
+		DbgPrintEx(101, 0, "%sFailed to backup the original values.", dbgPrefix);
+		//if(pExtension->pBackupObject->pSegmentInfoForFS)
+		//	ExFreePool(pExtension->pBackupObject->pSegmentInfoForFS);
+		//ExFreePool(pExtension->pBackupObject);
+		//pExtension->pBackupObject = NULL;
+		//return ntStatus;
 	}
 
-	DbgPrintEx(101, 0, "   ::: Original Process : %s\n", (PUCHAR)((pExtension->pSniffObject->backedEprocess) + of_ImageFileName));
-	DbgPrintEx(101, 0, "       -> Manipulated to : %s\n", (PUCHAR)((ULONG)(pExtension->pTargetProcess->pEprocess) + of_ImageFileName));
-	DbgPrintEx(101, 0, "   ::: Original CR3 : 0x%08X\n", pExtension->pSniffObject->backedCR3);
-	DbgPrintEx(101, 0, "       -> Changed CR3 : 0x%08X\n", backedCR3);
 
-	return STATUS_SUCCESS;
-}
-
-VOID RestoreAddressTables() {
-	PDEVICE_EXTENSION pExtension = pMyDevice->DeviceExtension;
-	ULONG backedEthread = 0;
-	ULONG backedCR3 = 0;
-	ULONG backedEprocess = 0;
-	BOOLEAN isRestored = FALSE;
-
-	if ((pExtension != NULL) && (pExtension->pSniffObject != NULL)) {
-		backedEprocess = pExtension->pSniffObject->backedEprocess;
-		backedEthread = pExtension->pSniffObject->backedEthread;
-		backedCR3 = pExtension->pSniffObject->backedCR3;
-
+	////////////////////////////////////////////////////////////////////////////
+	////////////////////////		Manipulation		////////////////////////
+	////////////////////////////////////////////////////////////////////////////
+	if (NT_SUCCESS(ntStatus)) {
 		__try {
+			// Manipulate the KPROCESS of the current thread.
+			*(PULONG)(pExtension->pBackupObject->OriginalEthread + of_Kprocess) = (ULONG)pExtension->pTargetProcess->pEprocess;
 
-			// Restore the backup thread's KPROCESS.
-			*(PULONG)(backedEthread + KTHREAD_OFFSET_KPROCESS) = backedEprocess;
-
-			// Restore the register CR3.
-			// Only, the current thread is same with backup.
+			// Manipulate the CR3.		이거 CR3 값 하위 12비트[PCID]가 0이 아니네?? 나중에 TLB 때문에 블루 스크린 뜨는 거 확인하고 다루자...
+			tmp = *(PULONG)((ULONG)(pExtension->pTargetProcess->pEprocess) + of_DirectoryTableBase);	// Note it!!! NOT the "EPROC_OFFSET_PageDirectoryPte"
 			__asm {
 				push eax;
-				push ebx;
-
-				// Check the current thread.
-				mov eax, fs:0x124;
-				mov ebx, backedEthread;
-				cmp eax, ebx;
-				jne PASS;
-
-				// Restore CR3
-				mov eax, backedCR3;
+				mov eax, tmp;
 				mov cr3, eax;
-				mov isRestored, 1;
-
-			PASS:
-				pop ebx;
 				pop eax;
 			}
 
-			// for TEST...
-			if (!isRestored) {
-				//	*(PULONG)(backedEprocess + KPROC_OFFSET_DirectoryTableBase) = backedCR3;
-				// for Check...
-				DbgPrintEx(101, 0, "    -> CR3 is not restored, Because the current process is switched...\n");
-				DbgPrintEx(101, 0, "        -> Backed Process's PDT : 0x%08X\n", *(PULONG)(backedEprocess + KPROC_OFFSET_DirectoryTableBase));
-				DbgPrintEx(101, 0, "        -> Backed CR3           : 0x%08X\n", backedCR3);
-			}
+			// Succeeded.
+			DbgPrintEx(101, 0, "%sOriginal Process : %s\n", dbgPrefix, (PUCHAR)((pExtension->pBackupObject->OriginalEprocess) + of_ImageFileName));
+			DbgPrintEx(101, 0, "       -> Manipulated to : %s\n", (PUCHAR)((ULONG)(pExtension->pTargetProcess->pEprocess) + of_ImageFileName));
+			DbgPrintEx(101, 0, "%sOriginal CR3 : 0x%08X\n", dbgPrefix, pExtension->pBackupObject->OriginalCR3);
+			DbgPrintEx(101, 0, "       -> Changed CR3 : 0x%08X\n", tmp);
 
-			DbgPrintEx(101, 0, "    -> Succeeded to restore the Tables...\n");
+			return ntStatus;
 		}
 		__except (EXCEPTION_EXECUTE_HANDLER) {
-			DbgPrintEx(101, 0, "[ERROR] Failed to restore the backed values...\n");
+			// Restore the KPROCESS of the current thread.
+			if ((*(PULONG)(pExtension->pBackupObject->OriginalEthread + of_Kprocess)) == (ULONG)(pExtension->pTargetProcess->pEprocess))
+				*(PULONG)(pExtension->pBackupObject->OriginalEthread + of_Kprocess) = pExtension->pBackupObject->OriginalEprocess;
+
+			// Decrease the Reference count that had been increased.
+			ObDereferenceObject((PVOID)(pExtension->pBackupObject->OriginalEprocess));
+
+			DbgPrintEx(101, 0, "%sFailed to manipulate.", dbgPrefix);
+			ntStatus = STATUS_UNSUCCESSFUL;
 		}
+	}
 
-		// Decrease the Reference count that had been increased.
-		ObDereferenceObject(backedEprocess);
+	// Failed.
+	if(pExtension->pBackupObject->pSegmentInfoForFS)
+			ExFreePool(pExtension->pBackupObject->pSegmentInfoForFS);
+	ExFreePool(pExtension->pBackupObject);
+	pExtension->pBackupObject = NULL;
 
-		ExFreePool(pExtension->pSniffObject);
-		pExtension->pSniffObject = NULL;
+	return ntStatus;
+}
+///////////////////////////////////// 위에 조작함수는 완성은 헀으나, 에러 없나 한번 쫙 보고... 아래 Restore 작성 후 테스트해야 함.
+
+VOID RestoreAddressTables() {
+	PDEVICE_EXTENSION pExtension = pMyDevice->DeviceExtension;
+	UCHAR dbgPrefix[] = "::: IN RESTORE ADDRESS TABLES : ";
+	ULONG OriginalCr3 = 0;
+
+	// Get necessary offsets.
+	LONG of_Kprocess = GetRequiredOffsets(L"_KTHREAD", L"Process");
+	if (of_Kprocess == -1) {
+		DbgPrintEx(101, 0, "%sFailed to get necessary offsets.", dbgPrefix);
 		return;
 	}
 
+
+	if (pExtension && pExtension->pBackupObject) {
+		// Restore the CR3.
+		OriginalCr3 = pExtension->pBackupObject->OriginalCR3;
+		__try {
+			__asm {
+				push eax;
+				mov eax, OriginalCr3;
+				mov cr3, eax;
+				pop eax;
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			DbgPrintEx(101, 0, "%sFailed to restore CR3.", dbgPrefix);
+		}
+
+		__try {
+			// Restore the KPROCESS of the current thread.
+			*(PULONG)(pExtension->pBackupObject->OriginalEthread + of_Kprocess) = pExtension->pBackupObject->OriginalEprocess;
+
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			DbgPrintEx(101, 0, "%sFailed to restore the KPROCESS of the current thread.", dbgPrefix);
+		}
+		// Decrease the Reference count that had been increased.
+		// 	-> 이거 예외 처리 해야 함!!!	-> 그리고 가능한 빨리 해제하라는데.. 다시 Manipulate()로 옮겨야 하나.. 오류확인하자.
+		// 오류 확인해 보고 위에 트라이문 안으로 넣자.
+		ObDereferenceObject((PVOID)(pExtension->pTargetProcess->pEprocess));
+
+
+
+		//Remove the BACKUP_OBJECT.
+		if (pExtension->pBackupObject->pSegmentInfoForFS)
+			ExFreePool(pExtension->pBackupObject->pSegmentInfoForFS);
+		ExFreePool(pExtension->pBackupObject);
+		pExtension->pBackupObject = NULL;
+
+		DbgPrintEx(101, 0, "%sThe Manipulations were restored as mush as possible.", dbgPrefix);
+	}
 }
 
+// 이게 원본.. -> 락이랑 언락 내부에서 각자 Manipulate하는 거를 한번에 하는 걸로 바꾸자...
+//	-> 어짜피 덤프할 버퍼를 넌페이지드풀에 만들었으며, 
+//	1024바이트 크기로 짤라서 들어오니 메시지 보낼 때 내 유저 인터페이스가 변경된 주소 테이블을 사용할 리도 없음.
 //PVOID LockAndMapMemory(ULONG StartAddress, ULONG Length, LOCK_OPERATION Operation) {
 //	PVOID mappedAddress = NULL;
 //	PDEVICE_EXTENSION pExtension = pMyDevice->DeviceExtension;
@@ -356,9 +487,6 @@ VOID RestoreAddressTables() {
 //		RestoreAddressTables();
 //	}
 //}
-
-
-
 //// 이게 원본... -> 버퍼를 콜러에서 만드는 걸로 변경.
 //PUCHAR MemoryDumping(ULONG StartAddress, ULONG Length) {
 //	PUCHAR memoryDump = NULL;
@@ -400,14 +528,84 @@ VOID RestoreAddressTables() {
 //	return memoryDump;
 //}
 
+// 아래 두 함수 내부에서 각자 ManipulateAddress하던 걸 MemoryDumping에서 한번에 하는 걸로 변경..
+PVOID LockAndMapMemory(ULONG StartAddress, ULONG Length, LOCK_OPERATION Operation, PUCHAR dbgPrefix) {
+	PVOID mappedAddress = NULL;
+	PDEVICE_EXTENSION pExtension = pMyDevice->DeviceExtension;
+
+	if (pExtension && pExtension->pTargetProcess) {
+		// Create a MDL.
+		pExtension->pTargetProcess->pUsingMdl = MmCreateMdl(NULL, (PVOID)StartAddress, (SIZE_T)Length);
+		if (pExtension->pTargetProcess->pUsingMdl) {
+			// Lock the MDL.
+			__try {
+				MmProbeAndLockPages(pExtension->pTargetProcess->pUsingMdl, KernelMode, Operation);
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER) {
+				if (GetExceptionCode() == STATUS_ACCESS_VIOLATION) {
+					// 이거 대상 주소를 포함하는 페이지가 갖는 접근 권한이, LOCK_OPERATION으로 지정한 동작을 지원하지 않을 때.
+					//		-> PTE에 있는 플래그 값 조정하고 다시 시도하는 걸로...
+					DbgPrintEx(101, 0, "%sThis page can't be written.", dbgPrefix);
+				}
+				else {
+					DbgPrintEx(101, 0, "%sFailed to Lock the MDL.", dbgPrefix);
+				}
+
+				IoFreeMdl(pExtension->pTargetProcess->pUsingMdl);
+				pExtension->pTargetProcess->pUsingMdl = NULL;
+				DbgPrintEx(101, 0, "%sFailed to Lock the MDL.", dbgPrefix);
+				return mappedAddress;
+			}
+
+			// Map to the System Address.
+			mappedAddress = MmMapLockedPages(pExtension->pTargetProcess->pUsingMdl, KernelMode);
+			if (mappedAddress) 
+				DbgPrintEx(101, 0, "%sSucceeded to Map the target Address to the System Address.", dbgPrefix);
+			else {
+				IoFreeMdl(pExtension->pTargetProcess->pUsingMdl);
+				pExtension->pTargetProcess->pUsingMdl = NULL;
+
+				DbgPrintEx(101, 0, "%sFailed to Map the MDL to the System Address.", dbgPrefix);
+			}
+		}
+		else
+			DbgPrintEx(101, 0, "%sFailed to Create a MDL for the Target Address.", dbgPrefix);
+	}
+
+	return mappedAddress;
+}
+
+
+VOID UnMapAndUnLockMemory(PVOID mappedAddress, PUCHAR dbgPrefix) {
+	PDEVICE_EXTENSION pExtension = pMyDevice->DeviceExtension;
+
+	if (pExtension && pExtension->pTargetProcess && pExtension->pTargetProcess->pUsingMdl) {
+		// Unmap from the System Address.
+		if ((pExtension->pTargetProcess->pUsingMdl->MdlFlags) & MDL_MAPPED_TO_SYSTEM_VA) 
+			MmUnmapLockedPages(mappedAddress, pExtension->pTargetProcess->pUsingMdl);
+		
+		// Unlock the MDL.
+		__try {
+			MmUnlockPages(pExtension->pTargetProcess->pUsingMdl);
+
+			// Free the MDL.
+			IoFreeMdl(pExtension->pTargetProcess->pUsingMdl);
+			pExtension->pTargetProcess->pUsingMdl = NULL;
+
+			DbgPrintEx(101, 0, "%sSucceeded to Free the MDL for the Target Address.", dbgPrefix);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			DbgPrintEx(101, 0, "%sFailed to Unlock the MDL.", dbgPrefix);
+		}
+	}
+}
+
 NTSTATUS MemoryDumping(ULONG StartAddress, ULONG Length, PUCHAR buffer) {
 	PVOID mappedAddress = NULL;
 	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
 	UCHAR dbgPrefix[] = "::: MEMORY DUMPING : ";
 
 	if (buffer && (Length <= 1024)) {
-		DbgPrintEx(101, 0, "%s0x%08X [0x%X]\n",dbgPrefix, StartAddress, Length);
-
 		// For Test...
 		//if (test == 0x63)
 		//	return ntStatus;
@@ -415,19 +613,31 @@ NTSTATUS MemoryDumping(ULONG StartAddress, ULONG Length, PUCHAR buffer) {
 		//	buffer[Length] = test;
 		//}
 		//ntStatus = STATUS_SUCCESS;
+		DbgPrintEx(101, 0, "%s0x%08X [0x%X]\n",dbgPrefix, StartAddress, Length);
 
 
-		//mappedAddress = LockAndMapMemory(StartAddress, Length, IoReadAccess);
-		//if (mappedAddress != NULL) {
-		//	__try {
-		//		RtlCopyMemory(buffer, mappedAddress, Length);
-		//		ntStatus = STATUS_SUCCESS;
-		//	}
-		//	__except (EXCEPTION_EXECUTE_HANDLER) {
-		//		DbgPrintEx(101, 0, "::: ERROR occured while memory dumping : 0x%08X", GetExceptionCode());
-		//	}
-		//	UnMapAndUnLockMemory(mappedAddress);
-		//}
+		ntStatus = ManipulateAddressTables(pMyDevice->DeviceExtension);
+		if (NT_SUCCESS(ntStatus)) {
+
+			// 락이랑 언락까지 다 하긴했다. 테스트해보자.
+			// 에러는 안난다만, UI랑 노트패드랑 같은값이 나왔다 첫 4바이트.. 원래 같은듯.. 다른값찾아서 해보자.
+			//		-> 다른 값 확인 완료. 그대로 EPROCESS 출력하는 함수 만들고 진행.
+			mappedAddress = LockAndMapMemory(StartAddress, Length, IoReadAccess, dbgPrefix);
+			if (mappedAddress != NULL) {
+				__try {
+					RtlCopyMemory(buffer, mappedAddress, Length);
+					ntStatus = STATUS_SUCCESS;
+				}
+				__except (EXCEPTION_EXECUTE_HANDLER) {
+					DbgPrintEx(101, 0, "::: ERROR occured while memory dumping : 0x%08X", GetExceptionCode());
+				}
+				UnMapAndUnLockMemory(mappedAddress, dbgPrefix);
+			}
+
+			RestoreAddressTables();
+		}
+
+
 	}
 
 	return ntStatus;
@@ -444,6 +654,7 @@ NTSTATUS GetKernelObjectDumper(PDEVICE_EXTENSION pExtension, PWCHAR ObjectName, 
 	USHORT count = Size / 1024;
 	UCHAR dbgPrefix[] = "::: IN KERNEL OBJECT DUMPER : ";
 
+	// 오브젝트 종류 하나씩 입력해야 함.
 	if (wcsncmp(ObjectName, L"_EPROCESS", 128) == 0) {
 		if(pExtension->pTargetProcess->pEprocess)
 			startAddress = (ULONG)(pExtension->pTargetProcess->pEprocess);
@@ -460,8 +671,15 @@ NTSTATUS GetKernelObjectDumper(PDEVICE_EXTENSION pExtension, PWCHAR ObjectName, 
 				pMessageForm->Size = ((i == count) ? (Size % 1024) : 1024);
 
 				ntStatus = MemoryDumping(startAddress + (i * 1024), pMessageForm->Size, pMessageForm->bMessage);
-				if (!NT_SUCCESS(ntStatus)) 
-					pMessageForm->Res = 0xFFFF;		// Stop & Send the Error Code.
+				if (!NT_SUCCESS(ntStatus)) {
+					// Stop & Send the Error Code.
+					if (ntStatus == STATUS_RESOURCE_DATA_NOT_FOUND) {
+						pMessageForm->Res = (USHORT)(STATUS_RESOURCE_DATA_NOT_FOUND & 0xFFFF);
+						ntStatus = STATUS_UNSUCCESSFUL;
+					}
+					else
+						pMessageForm->Res = 0xFFFF;		
+				}
 
 				// Always, Send.
 				if (!MessageMaker(pMessageForm->Type, pMessageForm, sizeof(MESSAGE_FORM))) 
@@ -572,54 +790,132 @@ NTSTATUS GetKernelObjectDumper(PDEVICE_EXTENSION pExtension, PWCHAR ObjectName, 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
+
+//// HANDLE Ver.
+//VOID RemoveTargetProcess(PDEVICE_EXTENSION pExtension) {
+//	UCHAR dbgPrefix[] = "::: IN Remove Target Process : ";
+//
+//	if (pExtension->pTargetProcess) {
+//		// Restore the Manipulated memory of the target process : HISTORY.
+//		// ...
+//		DbgPrintEx(101, 0, "%sRestore the Manipulated memory...", dbgPrefix);
+//
+//		// Decrease the Reference Count.	-> 이거 예외 처리 해야 함!!!	-> 그리고 가능한 빨리 해제하라는데.. 다시 Manipulate()로 옮겨야 하나..
+//		ObDereferenceObject(pExtension->pTargetProcess->pEprocess);
+//		ZwClose(pExtension->pTargetProcess->hProcess);
+//		ExFreePool(pExtension->pTargetProcess);
+//		pExtension->pTargetProcess = NULL;
+//	}
+//}
+//
+//// HANDLE Ver.
+//NTSTATUS InitializeTargetProcess(PDEVICE_EXTENSION pExtension, USHORT targetId, PWCHAR targetName) {
+//	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
+//	UCHAR dbgPrefix[] = "::: IN Initialize Target Process : ";
+//	OBJECT_ATTRIBUTES objAttr;
+//	HANDLE hProcess = NULL;
+//	PEPROCESS pEprocess = NULL;
+//	CLIENT_ID cid;
+//
+//	// Check necessary offsets.
+//	LONG of_VadRoot = GetRequiredOffsets(L"_EPROCESS", L"VadRoot");
+//	if (of_VadRoot == -1) {
+//		DbgPrintEx(101, 0, "%sFailed to get necessary offsets...", dbgPrefix);
+//		return STATUS_RESOURCE_DATA_NOT_FOUND;
+//	}
+//
+//	// Get HANDLE of target process.
+//	cid.UniqueProcess = targetId;
+//	cid.UniqueThread = 0;
+//	InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+//	
+//	ntStatus = ZwOpenProcess(&hProcess, GENERIC_ALL, &objAttr, &cid);
+//	if (NT_SUCCESS(ntStatus)) {
+//		ntStatus = ObReferenceObjectByHandle(hProcess, GENERIC_ALL, NULL, KernelMode, &pEprocess, NULL);
+//		if (NT_SUCCESS(ntStatus)) {
+//			DbgPrintEx(101, 0, "%sPROCESS OBJECT: 0x%08X", dbgPrefix, (ULONG)pEprocess);
+//			DbgPrintEx(101, 0,"%sPROCESS HANDLE : 0x%08X", dbgPrefix, (ULONG)hProcess);
+//			
+//			// Set Create the Target Object. 
+//			pExtension->pTargetProcess = ExAllocatePool(NonPagedPool, sizeof(TARGET_PROCESS));
+//			if (pExtension->pTargetProcess) {
+//				RtlZeroMemory(pExtension->pTargetProcess, sizeof(TARGET_PROCESS));
+//
+//				pExtension->pTargetProcess->hProcess = hProcess;
+//				pExtension->pTargetProcess->pEprocess = pEprocess;
+//				pExtension->pTargetProcess->pVadRoot = (ULONG)pEprocess + of_VadRoot;
+//				pExtension->pTargetProcess->ProcessId = targetId;
+//				InitializeListHead(&(pExtension->pTargetProcess->HistoryHead));
+//
+//				ntStatus = STATUS_SUCCESS;
+//			}
+//			else {				
+//				ObDereferenceObject(pEprocess);
+//				ZwClose(hProcess);
+//				DbgPrintEx(101, 0, "%sFailed to Allocate pool for the TARGET_OBJECT...", dbgPrefix);
+//
+//				ntStatus = STATUS_UNSUCCESSFUL;
+//			}
+//		}
+//		else {
+//			ZwClose(hProcess);
+//			DbgPrintEx(101, 0, "%sFailed to get Reference object by Handle.", dbgPrefix);
+//		}
+//	}
+//	else
+//		DbgPrintEx(101, 0, "%sFailed to get handle of %ws. [CODE : 0x%08X]", dbgPrefix, targetName, (ULONG)ntStatus);
+//
+//	return ntStatus;
+//}
+//
+
+
 VOID RemoveTargetProcess(PDEVICE_EXTENSION pExtension) {
 	UCHAR dbgPrefix[] = "::: IN Remove Target Process : ";
 
 	if (pExtension->pTargetProcess) {
 		// Restore the Manipulated memory of the target process : HISTORY.
 		// ...
+
 		DbgPrintEx(101, 0, "%sRestore the Manipulated memory...", dbgPrefix);
 
 		ExFreePool(pExtension->pTargetProcess);
 		pExtension->pTargetProcess = NULL;
 	}
-
 }
 
 // targetPID's first byte is the flags for History Function.		-> 항상 히스토리 만드는 걸로...
 NTSTATUS InitializeTargetProcess(PDEVICE_EXTENSION pExtension, USHORT targetId, PWCHAR targetName) {
 	NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
-	PTARGET_PROCESS pTargetProcess = NULL;
 	ULONG pFirstEPROCESS = 0;
 	ULONG pCurrentEPROCESS = 0;
 	BOOLEAN isDetected = FALSE;
 	UCHAR dbgPrefix[] = "::: IN Initialize Target Process : ";
 
-	// Check the necessary offsets.
+	// Get necessary offsets.
 	LONG of_UniqueProcessId = GetRequiredOffsets(L"_EPROCESS", L"UniqueProcessId");
 	LONG of_ActiveProcessLinks = GetRequiredOffsets(L"_EPROCESS", L"ActiveProcessLinks");
 	LONG of_VadRoot = GetRequiredOffsets(L"_EPROCESS", L"VadRoot");
 
 	if ((of_UniqueProcessId == -1) || (of_ActiveProcessLinks == -1) || (of_VadRoot == -1)) {
-		DbgPrintEx(101, 0, "%sFailed to get the necessary offsets...", dbgPrefix);
+		DbgPrintEx(101, 0, "%sFailed to get necessary offsets...", dbgPrefix);
 		return STATUS_RESOURCE_DATA_NOT_FOUND;
 	}
 
 
+	// Search for the Target Process.
 	pFirstEPROCESS = (ULONG)IoGetCurrentProcess();
 	if (pFirstEPROCESS == NULL) {
 		DbgPrintEx(101, 0, "%sFailed to get the first process...", dbgPrefix);
 		return ntStatus;
 	}
 
-	// Find the Target Process.
 	pCurrentEPROCESS = pFirstEPROCESS;
 	do {
 		if (*(PULONG)(pCurrentEPROCESS + of_UniqueProcessId) == targetId) {
 			isDetected = TRUE;
 			break;
 		}
-
 		pCurrentEPROCESS = (PEPROCESS)((*(PULONG)(pCurrentEPROCESS + of_ActiveProcessLinks)) - of_ActiveProcessLinks);
 	} while (pCurrentEPROCESS != pFirstEPROCESS);
 
@@ -629,23 +925,19 @@ NTSTATUS InitializeTargetProcess(PDEVICE_EXTENSION pExtension, USHORT targetId, 
 		// Set the Target Object. 
 		pExtension->pTargetProcess = ExAllocatePool(NonPagedPool, sizeof(TARGET_PROCESS));
 		if (pExtension->pTargetProcess) {
-			pTargetProcess = pExtension->pTargetProcess;
-			RtlZeroMemory(pTargetProcess, sizeof(TARGET_PROCESS));
+			RtlZeroMemory(pExtension->pTargetProcess, sizeof(TARGET_PROCESS));
 
-			pTargetProcess->pEprocess = pCurrentEPROCESS;
-			pTargetProcess->pVadRoot = pCurrentEPROCESS + of_VadRoot;
-			pTargetProcess->ProcessId = targetId;
-			InitializeListHead(&(pTargetProcess->HistoryHead));
-
-			//UserMessageMaker(pExtension, MESSAGE_TYPE_PROCESS_INFO);
-			//UserMessageMaker(pExtension, MESSAGE_TYPE_VAD);
-			//UserMessageMaker(pExtension, MESSAGE_TYPE_HANDLES);
-			//UserMessageMaker(pExtension, MESSAGE_TYPE_WORKINGSET_SUMMARY);
+			pExtension->pTargetProcess->pEprocess = pCurrentEPROCESS;
+			pExtension->pTargetProcess->pVadRoot = pCurrentEPROCESS + of_VadRoot;
+			pExtension->pTargetProcess->ProcessId = targetId;
+			InitializeListHead(&(pExtension->pTargetProcess->HistoryHead));
 
 			ntStatus = STATUS_SUCCESS;
 		}
-		else
-			DbgPrintEx(101, 0, "%sFailed to Allocate pool for TARGET_OBJECT...",dbgPrefix);
+		else {
+			DbgPrintEx(101, 0, "%sFailed to Allocate pool for the TARGET_OBJECT...", dbgPrefix);
+			ntStatus = STATUS_UNSUCCESSFUL;
+		}
 	}
 	else
 		DbgPrintEx(101, 0, "%sTarget PID is not exist...", dbgPrefix);
@@ -672,9 +964,7 @@ VOID CachingRequiredOffset(PDEVICE_EXTENSION pExtension, PREQUIRED_OFFSET respon
 
 LONG GetRequiredOffsets(PWCHAR ObjectName, PWCHAR FieldName) {
 	PDEVICE_EXTENSION pExtension = (PDEVICE_EXTENSION)(pMyDevice->DeviceExtension);
-	ULONG i = 0;
 	PVOID pRequired = pExtension->RequiredOffsetCache.Flink;
-	UCHAR LengthOfObjectName = wcslen(ObjectName);
 	
 	while (&(pExtension->RequiredOffsetCache) != pRequired) {
 		if ((wcsncmp(ObjectName, ((PREQUIRED_OFFSET_ENTRY)pRequired)->Required.ObjectName, wcsnlen_s(ObjectName, 128)) == 0) &&
@@ -1051,7 +1341,7 @@ NTSTATUS DispatchControl(PDEVICE_OBJECT pDeviceObject, PIRP pIrp) {
 					ntStatus = STATUS_SUCCESS;
 				}
 				break;
-			case SIN_UNSELECT_TARGET_PROCESS:
+			case SIN_DESELECT_TARGET_PROCESS:
 				if (pExtension->pTargetProcess) {
 					RemoveTargetProcess(pExtension);
 				}
